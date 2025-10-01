@@ -8,7 +8,7 @@ volumes:
 
 services:
   redpanda:
-    image: redpandadata/redpanda:25
+    image: redpandadata/redpanda:v25.2.7
     command: >-
       redpanda start
       --overprovisioned
@@ -27,14 +27,14 @@ services:
     volumes:
       - redpanda-data:/var/lib/redpanda/data
     healthcheck:
-      test: ["CMD", "bash", "-c", "rpk cluster info --api-urls=redpanda:9644 || exit 1"]
+      test: ["CMD-SHELL", "rpk cluster info --brokers=redpanda:9092 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
     depends_on: {}
 
   redpanda-console:
-    image: redpandadata/console:25
+    image: redpandadata/console
     environment:
       KAFKA_BROKERS: redpanda:9092
     ports:
@@ -51,7 +51,7 @@ services:
       retries: 5
 
   clickhouse:
-    image: clickhouse/clickhouse-server:25
+    image: clickhouse:25.8.7.3
     ports:
       - "8123:8123"   # HTTP
       - "9000:9000"   # Native
@@ -70,10 +70,10 @@ services:
       retries: 5
 
   redis:
-    image: redis:8-alpine
+    image: redis:8
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     ports:
-      - "6379:6379"
+      - "6380:6379"
     networks:
       - appnet
     volumes:

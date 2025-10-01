@@ -41,13 +41,10 @@ vet:
 test:
 	$(GO) test ./...
 
-race:
-	$(GO) test -race ./...
-
-compose-up:
+up:
 	docker compose -f deploy/docker-compose.yml up -d
 
-compose-down:
+down:
 	docker compose -f deploy/docker-compose.yml down -v
 
 compose-logs:
