@@ -1,0 +1,35 @@
+# Go
+/bin/
+/build/
+/dist/
+/cover.out
+*.test
+*.exe
+*.dll
+*.so
+*.dylib
+*.prof
+profile.out
+
+# Modules
+/vendor/
+
+# IDE / Editors
+.idea/
+.vscode/
+*.iml
+
+# OS / Misc
+.DS_Store
+Thumbs.db
+
+# Env files
+deploy/env/.env
+
+# Logs
+logs/
+*.log
+
+# Temporary
+.tmp/
+

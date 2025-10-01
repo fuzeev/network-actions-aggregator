@@ -1,0 +1,86 @@
+networks:
+  appnet: {}
+
+volumes:
+  redpanda-data: {}
+  clickhouse-data: {}
+  redis-data: {}
+
+services:
+  redpanda:
+    image: redpandadata/redpanda:25
+    command: >-
+      redpanda start
+      --overprovisioned
+      --smp 1
+      --memory 1G
+      --reserve-memory 0M
+      --node-id 0
+      --check=false
+      --kafka-addr 0.0.0.0:9092
+      --advertise-kafka-addr redpanda:9092
+    ports:
+      - "9092:9092"
+      - "9644:9644"
+    networks:
+      - appnet
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD", "bash", "-c", "rpk cluster info --api-urls=redpanda:9644 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on: {}
+
+  redpanda-console:
+    image: redpandadata/console:25
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    ports:
+      - "8080:8080"
+    networks:
+      - appnet
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25
+    ports:
+      - "8123:8123"   # HTTP
+      - "9000:9000"   # Native
+    networks:
+      - appnet
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    networks:
+      - appnet
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
