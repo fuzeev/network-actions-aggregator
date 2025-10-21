@@ -31,15 +31,6 @@ logs-redis: ## Показать логи Redis
 logs-redpanda: ## Показать логи Redpanda
 	docker compose logs -f redpanda
 
-clean: ## Удалить все контейнеры и volumes
-	@echo "$(RED)Внимание! Это удалит все данные!$(NC)"
-	@read -p "Вы уверены? [y/N] " -n 1 -r; \
-	echo; \
-	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
-		docker compose down -v; \
-		echo "$(GREEN)Очистка завершена$(NC)"; \
-	fi
-
 # Загружаем переменные из .env
 ifneq (,$(wildcard .env))
     include .env
@@ -52,22 +43,22 @@ GOOSE_MIGRATION_DIR := ./migrations
 
 migrate-up: ## Применить все миграции
 	@echo "$(CYAN)Применение миграций через goose...$(NC)"
-	goose -dir $(GOOSE_MIGRATION_DIR) postgres $(GOOSE_DBSTRING) up
+	goose -dir $(GOOSE_MIGRATION_DIR) postgres "$(GOOSE_DBSTRING)" up
 	@echo "$(GREEN)Миграции применены!$(NC)"
 
 migrate-down: ## Откатить последнюю миграцию
 	@echo "$(CYAN)Откат последней миграции через goose...$(NC)"
-	goose -dir $(GOOSE_MIGRATION_DIR) postgres $(GOOSE_DBSTRING) down
+	goose -dir $(GOOSE_MIGRATION_DIR) postgres "$(GOOSE_DBSTRING)" down
 	@echo "$(GREEN)Миграция откачена!$(NC)"
 
 migrate-reset: ## Откатить все миграции
 	@echo "$(RED)Откат всех миграций...$(NC)"
-	goose -dir $(GOOSE_MIGRATION_DIR) postgres $(GOOSE_DBSTRING) reset
+	goose -dir $(GOOSE_MIGRATION_DIR) postgres "$(GOOSE_DBSTRING)" reset
 	@echo "$(GREEN)Все миграции откачены!$(NC)"
 
 migrate-status: ## Проверить статус миграций
 	@echo "$(CYAN)Статус миграций:$(NC)"
-	goose -dir $(GOOSE_MIGRATION_DIR) postgres $(GOOSE_DBSTRING) status
+	goose -dir $(GOOSE_MIGRATION_DIR) postgres "$(GOOSE_DBSTRING)" status
 
 migrate-create: ## Создать новую миграцию (использование: make migrate-create NAME=migration_name)
 	@if [ -z "$(NAME)" ]; then \
