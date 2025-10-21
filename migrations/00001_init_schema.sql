@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS events_raw (
     meta          JSONB DEFAULT '{}'::JSONB,
     created_at    TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (event_id, started_at)
-) PARTITION BY RANGE (DATE_TRUNC('month', started_at));
+) PARTITION BY RANGE (started_at);
 
 -- Создаём индексы на ОСНОВНОЙ таблице
 -- PostgreSQL автоматически создаст соответствующие индексы на всех партициях
