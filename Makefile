@@ -47,20 +47,37 @@ clean: ## Удалить все контейнеры и volumes
 		echo "$(GREEN)Очистка завершена$(NC)"; \
 	fi
 
-# Миграции
+# Миграции (через goose)
+GOOSE_DBSTRING := "postgres://app_user:app_password@localhost:5432/network_events?sslmode=disable"
+GOOSE_MIGRATION_DIR := ./migrations
+
 migrate-up: ## Применить все миграции
-	@echo "$(CYAN)Применение миграций...$(NC)"
-	docker-compose exec -T postgres psql -U app_user -d network_events -f /docker-entrypoint-initdb.d/000001_init_schema.up.sql
+	@echo "$(CYAN)Применение миграций через goose...$(NC)"
+	goose -dir $(GOOSE_MIGRATION_DIR) postgres $(GOOSE_DBSTRING) up
 	@echo "$(GREEN)Миграции применены!$(NC)"
 
-migrate-down: ## Откатить миграции
-	@echo "$(CYAN)Откат миграций...$(NC)"
-	docker-compose exec -T postgres psql -U app_user -d network_events -f /docker-entrypoint-initdb.d/000001_init_schema.down.sql
-	@echo "$(GREEN)Миграции откачены!$(NC)"
+migrate-down: ## Откатить последнюю миграцию
+	@echo "$(CYAN)Откат последней миграции через goose...$(NC)"
+	goose -dir $(GOOSE_MIGRATION_DIR) postgres $(GOOSE_DBSTRING) down
+	@echo "$(GREEN)Миграция откачена!$(NC)"
 
-migrate-status: ## Проверить состояние БД
-	@echo "$(CYAN)Проверка таблиц в БД...$(NC)"
-	docker-compose exec postgres psql -U app_user -d network_events -c "\dt"
+migrate-reset: ## Откатить все миграции
+	@echo "$(RED)Откат всех миграций...$(NC)"
+	goose -dir $(GOOSE_MIGRATION_DIR) postgres $(GOOSE_DBSTRING) reset
+	@echo "$(GREEN)Все миграции откачены!$(NC)"
+
+migrate-status: ## Проверить статус миграций
+	@echo "$(CYAN)Статус миграций:$(NC)"
+	goose -dir $(GOOSE_MIGRATION_DIR) postgres $(GOOSE_DBSTRING) status
+
+migrate-create: ## Создать новую миграцию (использование: make migrate-create NAME=migration_name)
+	@if [ -z "$(NAME)" ]; then \
+		echo "$(RED)Ошибка: укажите NAME=migration_name$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(CYAN)Создание новой миграции: $(NAME)$(NC)"
+	goose -dir $(GOOSE_MIGRATION_DIR) create $(NAME) sql
+	@echo "$(GREEN)Миграция создана!$(NC)"
 
 # Дополнительные утилиты
 db-shell: ## Подключиться к PostgreSQL
@@ -164,6 +181,7 @@ install-tools: ## Установить необходимые инструмен
 	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 	go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@latest
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	go install github.com/pressly/goose/v3/cmd/goose@latest
 	@echo "$(GREEN)Инструменты установлены!$(NC)"
 
 # Локальный запуск сервисов (для разработки)

@@ -1,3 +1,5 @@
+-- +goose Up
+-- +goose StatementBegin
 -- Создание основной партиционированной таблицы событий
 CREATE TABLE IF NOT EXISTS events_raw (
     event_id      UUID NOT NULL,
@@ -51,3 +53,11 @@ CREATE TABLE IF NOT EXISTS agg_month (
 
 CREATE INDEX IF NOT EXISTS idx_agg_month_month ON agg_month (month);
 CREATE INDEX IF NOT EXISTS idx_agg_month_type ON agg_month (type);
+-- +goose StatementEnd
+
+-- +goose Down
+-- +goose StatementBegin
+DROP TABLE IF EXISTS agg_month CASCADE;
+DROP TABLE IF EXISTS agg_day CASCADE;
+DROP TABLE IF EXISTS events_raw CASCADE;
+-- +goose StatementEnd
