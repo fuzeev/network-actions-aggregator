@@ -139,10 +139,9 @@ fmt: ## Форматировать код
 # Полный запуск
 init: up kafka-create-topic migrate-up create-partitions
 
-# Создать партиции PostgreSQL на ближайшие N месяцев (по умолчанию 6 месяцев)
 create-partitions: ## Создать партиции PostgreSQL на ближайшие 6 месяцев
 	@echo "$(CYAN)Создание партиций на ближайшие 6 месяцев...$(NC)"
-	@./scripts/create_partitions.sh $(START_MONTH) 6
+	@./scripts/create_partitions.sh 6
 
 install-tools: ## Установить необходимые инструменты
 	@echo "$(CYAN)Установка инструментов...$(NC)"
