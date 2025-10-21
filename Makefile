@@ -1,4 +1,4 @@
-.PHONY: help up down restart logs clean migrate-up migrate-down migrate-create test build
+.PHONY: help up down restart logs clean migrate-up migrate-down migrate-create test build create-partitions
 
 # Цвета для вывода
 CYAN := \033[0;36m
@@ -12,43 +12,42 @@ help: ## Показать справку
 
 # Docker команды
 up: ## Запустить все сервисы
-	@echo "$(CYAN)Запуск сервисов...$(NC)"
-	docker-compose up -d
-	@echo "$(GREEN)Сервисы запущены!$(NC)"
-	@echo "$(CYAN)Postgres:$(NC) localhost:5432"
-	@echo "$(CYAN)Redis:$(NC) localhost:6379"
-	@echo "$(CYAN)Redpanda:$(NC) localhost:9092"
-	@echo "$(CYAN)Redpanda Console:$(NC) http://localhost:8080"
+	docker compose up -d
 
 down: ## Остановить все сервисы
-	@echo "$(CYAN)Остановка сервисов...$(NC)"
-	docker-compose down
+	docker compose down
 
 restart: down up ## Перезапустить все сервисы
 
 logs: ## Показать логи всех сервисов
-	docker-compose logs -f
+	docker compose logs -f
 
 logs-postgres: ## Показать логи PostgreSQL
-	docker-compose logs -f postgres
+	docker compose logs -f postgres
 
 logs-redis: ## Показать логи Redis
-	docker-compose logs -f redis
+	docker compose logs -f redis
 
 logs-redpanda: ## Показать логи Redpanda
-	docker-compose logs -f redpanda
+	docker compose logs -f redpanda
 
 clean: ## Удалить все контейнеры и volumes
 	@echo "$(RED)Внимание! Это удалит все данные!$(NC)"
 	@read -p "Вы уверены? [y/N] " -n 1 -r; \
 	echo; \
 	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
-		docker-compose down -v; \
+		docker compose down -v; \
 		echo "$(GREEN)Очистка завершена$(NC)"; \
 	fi
 
+# Загружаем переменные из .env
+ifneq (,$(wildcard .env))
+    include .env
+    export
+endif
+
 # Миграции (через goose)
-GOOSE_DBSTRING := "postgres://app_user:app_password@localhost:5432/network_events?sslmode=disable"
+GOOSE_DBSTRING := postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)?sslmode=$(POSTGRES_SSLMODE)
 GOOSE_MIGRATION_DIR := ./migrations
 
 migrate-up: ## Применить все миграции
@@ -81,24 +80,23 @@ migrate-create: ## Создать новую миграцию (использо�
 
 # Дополнительные утилиты
 db-shell: ## Подключиться к PostgreSQL
-	docker-compose exec postgres psql -U app_user -d network_events
+	docker compose exec postgres psql -U app_user -d network_events
 
 redis-cli: ## Подключиться к Redis CLI
-	docker-compose exec redis redis-cli
+	docker compose exec redis redis-cli
 
 kafka-topics: ## Показать список топиков Kafka
-	docker-compose exec redpanda rpk topic list
+	docker compose exec redpanda rpk topic list
 
 kafka-create-topic: ## Создать топик events.telecom
-	@echo "$(CYAN)Создание топика events.telecom...$(NC)"
-	docker-compose exec redpanda rpk topic create events.telecom \
+	docker compose exec redpanda rpk topic create events.telecom \
 		--partitions 8 \
 		--replicas 1 \
 		--topic-config retention.ms=604800000
 	@echo "$(GREEN)Топик создан!$(NC)"
 
 kafka-describe-topic: ## Описание топика events.telecom
-	docker-compose exec redpanda rpk topic describe events.telecom
+	docker compose exec redpanda rpk topic describe events.telecom
 
 # Сборка и тесты
 build-ingestor: ## Собрать ingestor
@@ -124,22 +122,18 @@ build-generator: ## Собрать generator
 build-all: build-ingestor build-aggregator build-api build-generator ## Собрать все сервисы
 
 test: ## Запустить тесты
-	@echo "$(CYAN)Запуск тестов...$(NC)"
 	go test -v -race -coverprofile=coverage.out ./...
-	@echo "$(GREEN)Тесты завершены!$(NC)"
 
 test-coverage: test ## Показать покрытие тестами
 	go tool cover -html=coverage.out
 
 # Proto
 proto-gen: ## Сгенерировать код из proto файлов
-	@echo "$(CYAN)Генерация proto...$(NC)"
 	@mkdir -p pkg/pb
 	protoc --go_out=pkg/pb --go_opt=paths=source_relative \
 		--go-grpc_out=pkg/pb --go-grpc_opt=paths=source_relative \
 		--grpc-gateway_out=pkg/pb --grpc-gateway_opt=paths=source_relative \
 		api/proto/*.proto
-	@echo "$(GREEN)Proto сгенерированы!$(NC)"
 
 # Линтеры и форматирование
 lint: ## Запустить линтеры
@@ -152,28 +146,12 @@ fmt: ## Форматировать код
 	goimports -w .
 
 # Полный запуск
-init: up kafka-create-topic migrate-up auto-partitions ## Полная инициализация проекта
-	@echo "$(GREEN)✓ Проект инициализирован и готов к работе!$(NC)"
-	@echo ""
-	@echo "$(CYAN)Доступные сервисы:$(NC)"
-	@echo "  - PostgreSQL: localhost:5432 (user: app_user, db: network_events)"
-	@echo "  - Redis: localhost:6379"
-	@echo "  - Redpanda: localhost:9092"
-	@echo "  - Redpanda Console: http://localhost:8080"
-	@echo ""
-	@echo "$(CYAN)Режим разработки (локальный запуск Go):$(NC)"
-	@echo "  make run-ingestor      # Запустить ingestor локально"
-	@echo "  make run-aggregator    # Запустить aggregator локально"
-	@echo "  make run-api           # Запустить api локально"
-	@echo "  make run-generator     # Запустить generator локально"
-	@echo ""
-	@echo "$(CYAN)Или соберите бинарники:$(NC)"
-	@echo "  make build-all && ./bin/ingestor"
+init: up kafka-create-topic migrate-up create-partitions
 
-auto-partitions: ## Создать партиции автоматически
-	@echo "$(CYAN)Создание партиций на 6 месяцев вперёд...$(NC)"
-	docker-compose exec -T postgres psql -U app_user -d network_events -c "SELECT ensure_partitions_exist(6);"
-	@echo "$(GREEN)Партиции созданы!$(NC)"
+# Создать партиции PostgreSQL на ближайшие N месяцев (по умолчанию 6 месяцев)
+create-partitions: ## Создать партиции PostgreSQL на ближайшие 6 месяцев
+	@echo "$(CYAN)Создание партиций на ближайшие 6 месяцев...$(NC)"
+	@./scripts/create_partitions.sh $(START_MONTH) 6
 
 install-tools: ## Установить необходимые инструменты
 	@echo "$(CYAN)Установка инструментов...$(NC)"
@@ -200,14 +178,3 @@ run-api: ## Запустить api локально
 run-generator: ## Запустить generator локально
 	@echo "$(CYAN)Запуск generator...$(NC)"
 	go run cmd/generator/main.go
-
-# Режим разработки с hot-reload (требует air: go install github.com/cosmtrek/air@latest)
-dev-ingestor: ## Запустить ingestor с hot-reload
-	air -c .air.ingestor.toml
-
-dev-aggregator: ## Запустить aggregator с hot-reload
-	air -c .air.aggregator.toml
-
-dev-api: ## Запустить api с hot-reload
-	air -c .air.api.toml
-
