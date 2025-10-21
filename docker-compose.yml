@@ -1,0 +1,169 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database
+  postgres:
+    image: postgres:18-alpine
+    container_name: network-aggregator-postgres
+    environment:
+      POSTGRES_DB: network_events
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: app_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app_user -d network_events"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - network-aggregator
+
+  # Redis cache
+  redis:
+    image: redis:8-alpine
+    container_name: network-aggregator-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - network-aggregator
+
+  # Redpanda (Kafka-compatible)
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.3.3
+    container_name: network-aggregator-redpanda
+    command:
+      - redpanda
+      - start
+      - --smp
+      - '1'
+      - --reserve-memory
+      - 0M
+      - --overprovisioned
+      - --node-id
+      - '0'
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+      - --advertise-kafka-addr
+      - PLAINTEXT://redpanda:29092,OUTSIDE://localhost:9092
+      - --pandaproxy-addr
+      - 0.0.0.0:8082
+      - --advertise-pandaproxy-addr
+      - localhost:8082
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+      - "8081:8081"
+      - "8082:8082"
+      - "9644:9644"
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - network-aggregator
+
+  # Redpanda Console (UI для управления)
+  redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:v2.4.3
+    container_name: network-aggregator-redpanda-console
+    environment:
+      KAFKA_BROKERS: redpanda:29092
+    ports:
+      - "8080:8080"
+    depends_on:
+      - redpanda
+    networks:
+      - network-aggregator
+
+  # Сервис приёма событий (ingestor)
+  # TODO: раскомментировать после создания Dockerfile
+  # ingestor:
+  #   build:
+  #     context: .
+  #     dockerfile: docker/Dockerfile.ingestor
+  #   container_name: network-aggregator-ingestor
+  #   environment:
+  #     - POSTGRES_DSN=postgres://app_user:app_password@postgres:5432/network_events?sslmode=disable
+  #     - KAFKA_BROKERS=redpanda:29092
+  #     - KAFKA_TOPIC=events.telecom
+  #     - KAFKA_GROUP_ID=ingestor-group
+  #     - WORKER_COUNT=8
+  #     - BATCH_SIZE=1000
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redpanda:
+  #       condition: service_healthy
+  #   networks:
+  #     - network-aggregator
+
+  # Сервис агрегации
+  # aggregator:
+  #   build:
+  #     context: .
+  #     dockerfile: docker/Dockerfile.aggregator
+  #   container_name: network-aggregator-aggregator
+  #   environment:
+  #     - POSTGRES_DSN=postgres://app_user:app_password@postgres:5432/network_events?sslmode=disable
+  #     - KAFKA_BROKERS=redpanda:29092
+  #     - KAFKA_TOPIC=events.telecom
+  #     - KAFKA_GROUP_ID=aggregator-group
+  #     - REDIS_ADDR=redis:6379
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #     redpanda:
+  #       condition: service_healthy
+  #   networks:
+  #     - network-aggregator
+
+  # API сервис (gRPC + HTTP)
+  # api:
+  #   build:
+  #     context: .
+  #     dockerfile: docker/Dockerfile.api
+  #   container_name: network-aggregator-api
+  #   environment:
+  #     - POSTGRES_DSN=postgres://app_user:app_password@postgres:5432/network_events?sslmode=disable
+  #     - REDIS_ADDR=redis:6379
+  #     - GRPC_PORT=9090
+  #     - HTTP_PORT=8000
+  #   ports:
+  #     - "9090:9090"  # gRPC
+  #     - "8000:8000"  # HTTP gateway
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   networks:
+  #     - network-aggregator
+
+networks:
+  network-aggregator:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  redpanda_data:
+

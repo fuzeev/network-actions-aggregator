@@ -1,0 +1,30 @@
+# Базовый образ для сборки
+FROM golang:1.21-alpine AS builder
+
+RUN apk add --no-cache git make
+
+WORKDIR /app
+
+# Копируем go.mod и go.sum для кэширования зависимостей
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Копируем весь код
+COPY . .
+
+# Собираем ingestor
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /bin/ingestor ./cmd/ingestor
+
+# Финальный образ
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates tzdata
+
+WORKDIR /root/
+
+COPY --from=builder /bin/ingestor .
+
+EXPOSE 6060
+
+CMD ["./ingestor"]
+

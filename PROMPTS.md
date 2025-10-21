@@ -391,4 +391,98 @@ message GlobalAggResponse {
 * **Идемпотентность** плюс **подтверждение чтения только после записи** — не теряем события.
 * **Профилирование** обязательно: включаем `pprof`, фиксируем цифры до/после.
 
-если хочешь, могу выдать минимальный набор файлов: `docker-compose.yaml`, `schema.sql`, набросок `Makefile`, каркас `main.go` для приёма, агрегации и api — так ты стартанёшь буквально за вечер.
+.
+├── INSTALL.md
+├── Makefile
+├── README.md
+├── cmd
+│   └── main.go
+├── docker
+│   └── go
+│       ├── Dockerfile
+│       └── Dockerfile-local
+├── docker-compose-local.yml
+├── docs
+│   └── swagger.yaml
+├── go.mod
+├── go.sum
+├── internal
+│   ├── app
+│   │   ├── endpoint
+│   │   │   ├── example_endpoint.go
+│   │   │   └── healthcheck_endpoint.go
+│   │   ├── request_context.go
+│   │   ├── use_case
+│   │   │   ├── example.go
+│   │   │   └── module.go
+│   │   └── validator.go
+│   ├── config
+│   │   └── config.go
+│   ├── console
+│   │   ├── commands
+│   │   │   ├── command.go
+│   │   │   ├── greet
+│   │   │   │   ├── action.go
+│   │   │   │   └── module.go
+│   │   │   └── test
+│   │   │       ├── action.go
+│   │   │       └── module.go
+│   │   └── module.go
+│   ├── consumers
+│   ├── domain
+│   │   ├── entity
+│   │   ├── error.go
+│   │   ├── helper
+│   │   │   ├── common_helper.go
+│   │   │   ├── console_helper.go
+│   │   │   └── file_helper.go
+│   │   ├── logger
+│   │   │   └── domain_logger.go
+│   │   ├── repository
+│   │   ├── service
+│   │   │   ├── encryption_service.go
+│   │   │   └── transactional_service.go
+│   │   └── vo
+│   │       ├── email.go
+│   │       ├── must.go
+│   │       └── phone.go
+│   ├── infrastructure
+│   │   ├── di
+│   │   │   ├── db.go
+│   │   │   ├── hooks.go
+│   │   │   ├── module.go
+│   │   │   └── providers.go
+│   │   ├── log
+│   │   │   ├── domain_logger.go
+│   │   │   └── rabbit_logger.go
+│   │   ├── repository
+│   │   │   └── common.go
+│   │   └── service
+│   │       └── transactional_service.go
+│   └── transport
+│       └── http
+│           ├── handler.go
+│           ├── middleware.go
+│           ├── request
+│           │   ├── auth_context.go
+│           │   ├── decoder.go
+│           │   └── fasades.go
+│           ├── response
+│           │   ├── encoder.go
+│           │   └── errors.go
+│           └── routes.go
+├── logger.yaml
+├── migrations
+│   └── 20251002_create_empty.sql
+└── tests
+├── api
+│   ├── common.go
+│   ├── helth_endpoint_test.go
+│   └── main_test.go
+├── db.go
+├── fx.go
+└── unit
+├── decoder_test.go
+├── encryption_test.go
+└── helpers_test.go
+

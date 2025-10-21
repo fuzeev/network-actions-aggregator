@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package telecom.v1;
+
+option go_package = "github.com/yourusername/network-actions-aggregator/pkg/pb/telecom/v1;telecomv1";
+
+import "google/api/annotations.proto";
+
+// Сервис для работы с событиями и агрегатами
+service UsageService {
+  // Получить детализацию по пользователю за период
+  rpc GetUserDetail(UserDetailRequest) returns (UserDetailResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/users/{user_id}/detail"
+    };
+  }
+
+  // Получить агрегированную статистику по всем пользователям
+  rpc GetGlobalAgg(GlobalAggRequest) returns (GlobalAggResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/aggregates"
+    };
+  }
+}
+
+// Запрос детализации по пользователю
+message UserDetailRequest {
+  string user_id = 1;    // ID пользователя
+  string from = 2;       // Начало периода (ISO8601)
+  string to = 3;         // Конец периода (ISO8601)
+  string cursor = 4;     // Курсор для пагинации
+  int32 limit = 5;       // Количество записей (по умолчанию 100)
+}
+
+// Ответ с детализацией
+message UserDetailResponse {
+  string user_id = 1;
+  string from = 2;
+  string to = 3;
+  repeated EventItem items = 4;
+  string next_cursor = 5;  // Курсор для следующей страницы (пустой = конец)
+  int64 total_count = 6;   // Общее количество событий
+}
+
+// Элемент события
+message EventItem {
+  string event_id = 1;
+  string type = 2;          // CALL_OUT, CALL_IN, SMS_SENT, SMS_RECEIVED, DATA
+  string started_at = 3;    // ISO8601
+  string ended_at = 4;      // ISO8601
+  int32 duration_sec = 5;
+  int64 bytes_up = 6;
+  int64 bytes_down = 7;
+  string meta = 8;          // JSON метаданные
+}
+
+// Запрос глобальных агрегатов
+message GlobalAggRequest {
+  string granularity = 1;  // "DAY" или "MONTH"
+  string from = 2;         // Начало периода (дата)
+  string to = 3;           // Конец периода (дата)
+}
+
+// Ответ с агрегатами
+message GlobalAggResponse {
+  string granularity = 1;
+  string from = 2;
+  string to = 3;
+  repeated AggRow data = 4;
+}
+
+// Строка агрегата
+message AggRow {
+  string date = 1;        // День или первый день месяца
+  string type = 2;        // CALL_OUT, CALL_IN, SMS_SENT, SMS_RECEIVED, DATA
+  int64 count_events = 3;
+  int64 sum_duration = 4;
+  int64 sum_bytes_up = 5;
+  int64 sum_bytes_down = 6;
+}
+

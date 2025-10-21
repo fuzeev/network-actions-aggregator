@@ -1,35 +1,49 @@
-# Go
-/bin/
-/build/
-/dist/
-/cover.out
-*.test
+# Binaries
+bin/
 *.exe
 *.dll
 *.so
 *.dylib
-*.prof
-profile.out
 
-# Modules
-/vendor/
+# Test binary
+*.test
 
-# IDE / Editors
-.idea/
+# Output of the go coverage tool
+*.out
+coverage.html
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# Environment variables
+.env
+.env.local
+
+# IDE
 .vscode/
-*.iml
+.idea/
+*.swp
+*.swo
+*~
 
-# OS / Misc
+# OS
 .DS_Store
 Thumbs.db
 
-# Env files
-deploy/env/.env
-
 # Logs
-logs/
 *.log
+logs/
 
-# Temporary
-.tmp/
+# Data
+data/
+*.db
+
+# Generated files
+pkg/pb/*.pb.go
+
+# Docker
+.dockerignore
 
