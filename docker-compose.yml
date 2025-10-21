@@ -6,12 +6,12 @@ services:
     image: postgres:18-alpine
     container_name: network-aggregator-postgres
     environment:
-      POSTGRES_DB: network_events
-      POSTGRES_USER: app_user
-      POSTGRES_PASSWORD: app_password
+      POSTGRES_DB: ${POSTGRES_DB:-network_events}
+      POSTGRES_USER: ${POSTGRES_USER:-app_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app_password}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
@@ -28,7 +28,7 @@ services:
     image: redis:8-alpine
     container_name: network-aggregator-redis
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes
@@ -63,7 +63,7 @@ services:
       - --advertise-pandaproxy-addr
       - localhost:8082
     ports:
-      - "9092:9092"
+      - "${KAFKA_PORT:-9092}:9092"
       - "29092:29092"
       - "8081:8081"
       - "8082:8082"
@@ -86,7 +86,7 @@ services:
     environment:
       KAFKA_BROKERS: redpanda:29092
     ports:
-      - "8080:8080"
+      - "${REDPANDA_CONSOLE_PORT:-8080}:8080"
     depends_on:
       - redpanda
     networks:
@@ -100,12 +100,18 @@ services:
   #     dockerfile: docker/Dockerfile.ingestor
   #   container_name: network-aggregator-ingestor
   #   environment:
-  #     - POSTGRES_DSN=postgres://app_user:app_password@postgres:5432/network_events?sslmode=disable
+  #     - POSTGRES_HOST=postgres
+  #     - POSTGRES_PORT=5432
+  #     - POSTGRES_USER=${POSTGRES_USER}
+  #     - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+  #     - POSTGRES_DB=${POSTGRES_DB}
+  #     - POSTGRES_SSLMODE=${POSTGRES_SSLMODE}
   #     - KAFKA_BROKERS=redpanda:29092
-  #     - KAFKA_TOPIC=events.telecom
-  #     - KAFKA_GROUP_ID=ingestor-group
-  #     - WORKER_COUNT=8
-  #     - BATCH_SIZE=1000
+  #     - KAFKA_TOPIC=${KAFKA_TOPIC}
+  #     - KAFKA_GROUP_ID=${KAFKA_GROUP_ID_INGESTOR}
+  #     - WORKER_COUNT=${INGESTOR_WORKER_COUNT}
+  #     - BATCH_SIZE=${INGESTOR_BATCH_SIZE}
+  #     - BATCH_TIMEOUT=${INGESTOR_BATCH_TIMEOUT}
   #   depends_on:
   #     postgres:
   #       condition: service_healthy
@@ -116,15 +122,22 @@ services:
 
   # Сервис агрегации
   # aggregator:
-  #   build:
+  #     - POSTGRES_HOST=postgres
+  #     - POSTGRES_PORT=5432
+  #     - POSTGRES_USER=${POSTGRES_USER}
+  #     - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+  #     - POSTGRES_DB=${POSTGRES_DB}
+  #     - POSTGRES_SSLMODE=${POSTGRES_SSLMODE}
+  #     - REDIS_HOST=redis
+  #     - REDIS_PORT=6379
+  #     - KAFKA_BROKERS=redpanda:29092
   #     context: .
   #     dockerfile: docker/Dockerfile.aggregator
-  #   container_name: network-aggregator-aggregator
   #   environment:
-  #     - POSTGRES_DSN=postgres://app_user:app_password@postgres:5432/network_events?sslmode=disable
-  #     - KAFKA_BROKERS=redpanda:29092
-  #     - KAFKA_TOPIC=events.telecom
+  #     - KAFKA_TOPIC=${KAFKA_TOPIC}
+  #     - KAFKA_GROUP_ID=${KAFKA_GROUP_ID_AGGREGATOR}
   #     - KAFKA_GROUP_ID=aggregator-group
+  #     - WORKER_COUNT=${AGGREGATOR_WORKER_COUNT}
   #     - REDIS_ADDR=redis:6379
   #   depends_on:
   #     postgres:
@@ -132,22 +145,40 @@ services:
   #     redis:
   #       condition: service_healthy
   #     redpanda:
-  #       condition: service_healthy
-  #   networks:
-  #     - network-aggregator
-
+  #     - POSTGRES_HOST=postgres
+  #     - POSTGRES_PORT=5432
+  #     - POSTGRES_USER=${POSTGRES_USER}
+  #     - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+  #     - POSTGRES_DB=${POSTGRES_DB}
+  #     - POSTGRES_SSLMODE=${POSTGRES_SSLMODE}
+  #     - REDIS_HOST=redis
+  #     - REDIS_PORT=6379
+  #     - GRPC_PORT=${API_GRPC_PORT}
+  #     - HTTP_PORT=${API_HTTP_PORT}
+  #     - CACHE_DETAIL_TTL=${CACHE_DETAIL_TTL}
+  #     - CACHE_AGG_DAY_TTL=${CACHE_AGG_DAY_TTL}
+  #     - CACHE_AGG_MONTH_TTL=${CACHE_AGG_MONTH_TTL}
   # API сервис (gRPC + HTTP)
-  # api:
-  #   build:
-  #     context: .
+  #     - "${API_GRPC_PORT:-9090}:${API_GRPC_PORT:-9090}"  # gRPC
+  #     - "${API_HTTP_PORT:-8000}:${API_HTTP_PORT:-8000}"  # HTTP gateway
+  #     - HTTP_PORT=${API_HTTP_PORT}
+  #     - CACHE_DETAIL_TTL=${CACHE_DETAIL_TTL}
+  #     - CACHE_AGG_DAY_TTL=${CACHE_AGG_DAY_TTL}
+  #     - CACHE_AGG_MONTH_TTL=${CACHE_AGG_MONTH_TTL}
   #     dockerfile: docker/Dockerfile.api
-  #   container_name: network-aggregator-api
-  #   environment:
-  #     - POSTGRES_DSN=postgres://app_user:app_password@postgres:5432/network_events?sslmode=disable
-  #     - REDIS_ADDR=redis:6379
+  #     - "${API_GRPC_PORT:-9090}:${API_GRPC_PORT:-9090}"  # gRPC
+  #     - "${API_HTTP_PORT:-8000}:${API_HTTP_PORT:-8000}"  # HTTP gateway
+  #     - GRPC_PORT=${API_GRPC_PORT}
+  #     - HTTP_PORT=${API_HTTP_PORT}
+  #     - CACHE_DETAIL_TTL=${CACHE_DETAIL_TTL}
+  #     - CACHE_AGG_DAY_TTL=${CACHE_AGG_DAY_TTL}
+  #     - CACHE_AGG_MONTH_TTL=${CACHE_AGG_MONTH_TTL}
+  #     - CACHE_DETAIL_TTL=${CACHE_DETAIL_TTL}
+  #     - "${API_GRPC_PORT:-9090}:${API_GRPC_PORT:-9090}"  # gRPC
+  #     - "${API_HTTP_PORT:-8000}:${API_HTTP_PORT:-8000}"  # HTTP gateway
   #     - GRPC_PORT=9090
-  #     - HTTP_PORT=8000
-  #   ports:
+  #     - "${API_GRPC_PORT:-9090}:${API_GRPC_PORT:-9090}"  # gRPC
+  #     - "${API_HTTP_PORT:-8000}:${API_HTTP_PORT:-8000}"  # HTTP gateway
   #     - "9090:9090"  # gRPC
   #     - "8000:8000"  # HTTP gateway
   #   depends_on:
