@@ -295,3 +295,28 @@ do update set
 * **Redis** ускоряет чтение, а инвалидатор поддерживает актуальность.
 * **Идемпотентность** плюс **подтверждение чтения только после записи** — не теряем события.
 * **Профилирование** обязательно: включаем `pprof`, фиксируем цифры до/после.
+
+# Главный промпт для нейронки
+если делаешь какую то сложную (или не очень) логику, оставляй такие todo чтобы я реализовывал сам. 
+
+вот пример
+// ConsumeEvents читает события из Kafka и отправляет в канал
+// Блокирует до отмены контекста
+func (c *ConsumerV2) ConsumeEvents(ctx context.Context, eventsChan chan<- *entity.Event) error {
+defer close(eventsChan)
+
+	c.logger.Info("starting kafka consumer v2")
+
+	// TODO: реализуй бесконечный цикл чтения
+	// 1. Проверяй ctx.Done() через select
+	// 2. Читай сообщение через FetchMessage
+	// 3. Парси JSON в entity.Event
+	// 4. Отправь в eventsChan (с проверкой ctx.Done!)
+	// 5. Закоммить offset через CommitMessages
+	// 6. Обработай ошибки на каждом этапе
+	
+	
+
+	return nil
+}
+
