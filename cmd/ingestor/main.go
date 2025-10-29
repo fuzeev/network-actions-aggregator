@@ -11,6 +11,8 @@ import (
 
 	"network-actions-aggregator/internal/domain/entity"
 	"network-actions-aggregator/internal/infrastructure/kafka"
+	"network-actions-aggregator/internal/infrastructure/postgres"
+	postgresRepo "network-actions-aggregator/internal/infrastructure/repository/postgres"
 	"network-actions-aggregator/internal/usecase"
 	"network-actions-aggregator/pkg/logger"
 )
@@ -45,12 +47,40 @@ func run() error {
 		RetryDelay:    100 * time.Millisecond,
 	}
 
-	// TODO: Инициализация репозитория
-	// Пока репозиторий не реализован, создаем заглушку для демонстрации
-	// eventRepo := postgres.NewEventRepository(db, log)
-	// ingestUC := usecase.NewIngestEventsUseCase(eventRepo, usecaseConfig, log)
+	// Инициализация PostgreSQL
+	//TODO: разобраться как работает пул соединений, попробовать с ним и без него
+	dbConfig := postgres.Config{
+		Host:            getEnv("POSTGRES_HOST", "localhost"),
+		Port:            getEnv("POSTGRES_PORT", "5432"),
+		User:            getEnv("POSTGRES_USER", "postgres"),
+		Password:        getEnv("POSTGRES_PASSWORD", "postgres"),
+		DBName:          getEnv("POSTGRES_DB", "network_actions"),
+		SSLMode:         getEnv("POSTGRES_SSLMODE", "disable"),
+		MaxOpenConns:    getEnvInt("POSTGRES_MAX_OPEN_CONNS", 25),
+		MaxIdleConns:    getEnvInt("POSTGRES_MAX_IDLE_CONNS", 5),
+		ConnMaxLifetime: time.Duration(getEnvInt("POSTGRES_CONN_MAX_LIFETIME_MIN", 5)) * time.Minute,
+		ConnMaxIdleTime: time.Duration(getEnvInt("POSTGRES_CONN_MAX_IDLE_TIME_MIN", 5)) * time.Minute,
+	}
 
-	log.Info("NOTE: EventRepository not implemented yet. Ingestor will consume but not save events.")
+	db, err := postgres.NewConnection(dbConfig)
+	if err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("failed to get database instance: %w", err)
+	}
+	defer sqlDB.Close()
+
+	log.Info("connected to database",
+		"host", dbConfig.Host,
+		"port", dbConfig.Port,
+		"database", dbConfig.DBName)
+
+	// Инициализация репозитория и usecase
+	eventRepo := postgresRepo.NewEventRepository(db)
+	ingestUC := usecase.NewIngestEventsUseCase(eventRepo, usecaseConfig, log)
 
 	// Создание Kafka consumer
 	consumer := kafka.NewConsumer(kafkaConfig, log)
@@ -78,35 +108,12 @@ func run() error {
 		}
 	}()
 
-	// TODO: Запуск usecase для обработки событий (когда будет готов репозиторий)
-	// wg.Add(1)
-	// go func() {
-	// 	defer wg.Done()
-	// 	if err := ingestUC.ProcessEvents(ctx, eventsChan); err != nil {
-	// 		log.Error("usecase error", "error", err)
-	// 	}
-	// }()
-
-	// Временный consumer для демонстрации
+	// Запуск usecase для обработки событий
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		count := 0
-		for {
-			select {
-			case <-ctx.Done():
-				log.Info("processed events", "total", count)
-				return
-			case event, ok := <-eventsChan:
-				if !ok {
-					log.Info("channel closed, processed events", "total", count)
-					return
-				}
-				count++
-				if count%100 == 0 {
-					log.Info("processing events", "count", count, "last_event_id", event.EventID)
-				}
-			}
+		if err := ingestUC.ProcessEvents(ctx, eventsChan); err != nil {
+			log.Error("usecase error", "error", err)
 		}
 	}()
 
