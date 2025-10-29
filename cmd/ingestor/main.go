@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
 	"network-actions-aggregator/internal/domain/entity"
 	"network-actions-aggregator/internal/infrastructure/kafka"
 	"network-actions-aggregator/internal/infrastructure/postgres"
@@ -25,14 +26,23 @@ func main() {
 }
 
 func run() error {
+	// Загрузка переменных окружения из .env файла
+	if err := godotenv.Load(); err != nil {
+		fmt.Printf("Warning: .env file not found: %v\n", err)
+	}
+
 	// Инициализация логгера
 	log := logger.NewLogger()
 
 	// Конфигурация
+	kafkaBroker := fmt.Sprintf("%s:%s",
+		getEnv("KAFKA_HOST", "localhost"),
+		getEnv("KAFKA_PORT", "9092"))
+
 	kafkaConfig := kafka.ConsumerConfig{
-		Brokers:        []string{getEnv("KAFKA_BROKERS", "localhost:9092")},
-		Topic:          getEnv("KAFKA_TOPIC", "network-events"),
-		GroupID:        getEnv("KAFKA_GROUP_ID", "ingestor-group"),
+		Brokers:        []string{kafkaBroker},
+		Topic:          getEnv("KAFKA_TOPIC", "events.telecom"),
+		GroupID:        getEnv("KAFKA_GROUP_ID_INGESTOR", "ingestor-group"),
 		MaxWait:        500 * time.Millisecond,
 		MinBytes:       1,
 		MaxBytes:       10e6,
@@ -40,21 +50,20 @@ func run() error {
 	}
 
 	usecaseConfig := usecase.IngestEventsConfig{
-		BatchSize:     getEnvInt("BATCH_SIZE", 500),
-		BatchTimeout:  time.Duration(getEnvInt("BATCH_TIMEOUT_MS", 1000)) * time.Millisecond,
-		WorkersCount:  getEnvInt("WORKERS_COUNT", 4),
+		BatchSize:     getEnvInt("INGESTOR_BATCH_SIZE", 1000),
+		BatchTimeout:  parseDuration(getEnv("INGESTOR_BATCH_TIMEOUT", "5s"), 5*time.Second),
+		WorkersCount:  getEnvInt("INGESTOR_WORKER_COUNT", 8),
 		RetryAttempts: getEnvInt("RETRY_ATTEMPTS", 3),
 		RetryDelay:    100 * time.Millisecond,
 	}
 
 	// Инициализация PostgreSQL
-	//TODO: разобраться как работает пул соединений, попробовать с ним и без него
 	dbConfig := postgres.Config{
 		Host:            getEnv("POSTGRES_HOST", "localhost"),
 		Port:            getEnv("POSTGRES_PORT", "5432"),
-		User:            getEnv("POSTGRES_USER", "postgres"),
-		Password:        getEnv("POSTGRES_PASSWORD", "postgres"),
-		DBName:          getEnv("POSTGRES_DB", "network_actions"),
+		User:            getEnv("POSTGRES_USER", "app_user"),
+		Password:        getEnv("POSTGRES_PASSWORD", "app_password"),
+		DBName:          getEnv("POSTGRES_DB", "network_events"),
 		SSLMode:         getEnv("POSTGRES_SSLMODE", "disable"),
 		MaxOpenConns:    getEnvInt("POSTGRES_MAX_OPEN_CONNS", 25),
 		MaxIdleConns:    getEnvInt("POSTGRES_MAX_IDLE_CONNS", 5),
@@ -183,6 +192,13 @@ func getEnvInt(key string, defaultValue int) int {
 		if _, err := fmt.Sscanf(value, "%d", &result); err == nil {
 			return result
 		}
+	}
+	return defaultValue
+}
+
+func parseDuration(value string, defaultValue time.Duration) time.Duration {
+	if d, err := time.ParseDuration(value); err == nil {
+		return d
 	}
 	return defaultValue
 }
