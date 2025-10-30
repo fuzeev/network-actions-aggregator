@@ -46,7 +46,7 @@ func (m *DayAggregation) ToDomain() *entity.DayAggregation {
 	}
 }
 
-// ToDomainBatch конвертирует слайс GORM моделей в доменные сущности
+// ToDomainDayAggregationBatch конвертирует слайс GORM моделей в доменные сущности
 func ToDomainDayAggregationBatch(models []*DayAggregation) []*entity.DayAggregation {
 	aggregations := make([]*entity.DayAggregation, len(models))
 	for i, m := range models {
