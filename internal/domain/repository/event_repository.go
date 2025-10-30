@@ -26,4 +26,7 @@ type EventRepository interface {
 
 	// CountUserEvents возвращает количество событий пользователя за период
 	CountUserEvents(ctx context.Context, userID uuid.UUID, from, to time.Time) (int64, error)
+
+	// GetByEventIDs возвращает события по списку event_id
+	GetByEventIDs(ctx context.Context, eventIDs []uuid.UUID) ([]*entity.Event, error)
 }

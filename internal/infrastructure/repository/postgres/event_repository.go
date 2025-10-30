@@ -112,3 +112,22 @@ func (r *eventRepository) CountUserEvents(ctx context.Context, userID uuid.UUID,
 
 	return count, nil
 }
+
+// GetByEventIDs возвращает события по списку event_id
+func (r *eventRepository) GetByEventIDs(ctx context.Context, eventIDs []uuid.UUID) ([]*entity.Event, error) {
+	if len(eventIDs) == 0 {
+		return []*entity.Event{}, nil
+	}
+
+	var models []*gorm_models.Event
+
+	result := r.db.WithContext(ctx).
+		Where("event_id IN ?", eventIDs).
+		Find(&models)
+
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get events by ids: %w", result.Error)
+	}
+
+	return gorm_models.ToDomainEventBatch(models), nil
+}

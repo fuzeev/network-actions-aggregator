@@ -215,6 +215,53 @@ make proto-gen
 - `GET /api/v1/users/{user_id}/detail` - детализация
 - `GET /api/v1/aggregates` - агрегаты
 
+## Генератор нагрузки
+
+Для нагрузочного тестирования системы создан генератор, который:
+- ✅ Генерирует реалистичные события с рандомизацией
+- ✅ Отправляет их в Kafka с настраиваемой скоростью
+- ✅ Проверяет что все события записались в БД
+- ✅ Фиксирует метрики производительности (throughput, latency, success rate)
+
+### Запуск генератора
+
+```bash
+# Быстрый тест: 1000 событий/сек, 1 минута
+go run cmd/generator/*.go
+
+# Высокая нагрузка: 5000 событий/сек, 5 минут
+export GENERATOR_EVENTS_PER_SEC=5000
+export GENERATOR_DURATION=5m
+export GENERATOR_WORKERS=8
+go run cmd/generator/*.go
+```
+
+### Конфигурация
+
+Через переменные окружения (см. `.env.example`):
+
+```bash
+GENERATOR_USER_COUNT=1000          # Количество уникальных пользователей
+GENERATOR_EVENTS_PER_SEC=1000      # Целевая скорость (событий/сек)
+GENERATOR_DURATION=60s             # Длительность теста (0 = бесконечно)
+GENERATOR_BATCH_SIZE=100           # Размер батча для Kafka
+GENERATOR_WORKERS=4                # Количество воркеров отправки
+GENERATOR_VERIFY_INTERVAL=10s      # Интервал проверки БД
+```
+
+### Метрики генератора
+
+Генератор выводит метрики каждые 5 секунд:
+
+```
+events_sent:      10000      # Всего отправлено в Kafka
+events_verified:  9950       # Проверено в БД
+events_failed:    0          # Ошибки отправки
+events_per_sec:   1000.50    # Фактическая скорость
+success_rate:     99.75%     # Процент успешности
+avg_latency:      250ms      # Средняя задержка до БД
+```
+
 ## Производительность
 
 ### Профилирование (pprof)
