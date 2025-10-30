@@ -169,23 +169,6 @@ run-generator: ## Запустить generator локально
 	@echo "$(CYAN)Запуск generator...$(NC)"
 	go run cmd/generator/*.go
 
-# Команды для нагрузочного тестирования
-load-test-quick: ## Быстрый тест: 1000 событий/сек, 1 минута
-	@echo "$(CYAN)Быстрый нагрузочный тест (1000 событий/сек, 1 мин)...$(NC)"
-	GENERATOR_EVENTS_PER_SEC=1000 GENERATOR_DURATION=60s go run cmd/generator/*.go
-
-load-test-medium: ## Средняя нагрузка: 2000 событий/сек, 5 минут
-	@echo "$(CYAN)Средняя нагрузка (2000 событий/сек, 5 мин)...$(NC)"
-	GENERATOR_EVENTS_PER_SEC=2000 GENERATOR_DURATION=5m GENERATOR_WORKERS=6 go run cmd/generator/*.go
-
-load-test-high: ## Высокая нагрузка: 5000 событий/сек, 5 минут
-	@echo "$(CYAN)Высокая нагрузка (5000 событий/сек, 5 мин)...$(NC)"
-	GENERATOR_EVENTS_PER_SEC=5000 GENERATOR_DURATION=5m GENERATOR_WORKERS=8 GENERATOR_BATCH_SIZE=200 go run cmd/generator/*.go
-
-load-test-stress: ## Стресс-тест: 10000 событий/сек, 3 минуты
+load-test: ## Стресс-тест: 10000 событий/сек, 3 минуты
 	@echo "$(RED)СТРЕСС-ТЕСТ (10000 событий/сек, 3 мин)...$(NC)"
 	GENERATOR_EVENTS_PER_SEC=10000 GENERATOR_DURATION=3m GENERATOR_WORKERS=12 GENERATOR_BATCH_SIZE=500 go run cmd/generator/*.go
-
-load-test-continuous: ## Непрерывная генерация (до Ctrl+C)
-	@echo "$(CYAN)Непрерывная генерация событий (Ctrl+C для остановки)...$(NC)"
-	GENERATOR_EVENTS_PER_SEC=1000 GENERATOR_DURATION=0 go run cmd/generator/*.go
