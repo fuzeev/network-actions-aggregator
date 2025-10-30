@@ -10,18 +10,18 @@ import (
 
 // Event - GORM модель для таблицы events_raw
 type Event struct {
-	EventID     uuid.UUID              `gorm:"column:event_id;primaryKey"`
-	SourceID    uuid.UUID              `gorm:"column:source_id;not null"`
-	UserID      uuid.UUID              `gorm:"column:user_id;not null;index:idx_events_raw_user_started"`
-	Phone       string                 `gorm:"column:phone;not null"`
-	Type        string                 `gorm:"column:type;not null"`
-	StartedAt   time.Time              `gorm:"column:started_at;primaryKey"`
-	EndedAt     *time.Time             `gorm:"column:ended_at"`
-	DurationSec *int                   `gorm:"column:duration_sec"`
-	BytesUp     int64                  `gorm:"column:bytes_up;default:0"`
-	BytesDown   int64                  `gorm:"column:bytes_down;default:0"`
-	Meta        map[string]interface{} `gorm:"column:meta;type:jsonb;default:'{}'"`
-	CreatedAt   time.Time              `gorm:"column:created_at;default:now()"`
+	EventID     uuid.UUID  `gorm:"column:event_id;primaryKey"`
+	SourceID    uuid.UUID  `gorm:"column:source_id;not null"`
+	UserID      uuid.UUID  `gorm:"column:user_id;not null;index:idx_events_raw_user_started"`
+	Phone       string     `gorm:"column:phone;not null"`
+	Type        string     `gorm:"column:type;not null"`
+	StartedAt   time.Time  `gorm:"column:started_at;primaryKey"`
+	EndedAt     *time.Time `gorm:"column:ended_at"`
+	DurationSec *int       `gorm:"column:duration_sec"`
+	BytesUp     int64      `gorm:"column:bytes_up;default:0"`
+	BytesDown   int64      `gorm:"column:bytes_down;default:0"`
+	Meta        JSONB      `gorm:"column:meta;type:jsonb;default:'{}'"`
+	CreatedAt   time.Time  `gorm:"column:created_at;default:now()"`
 }
 
 // TableName указывает имя таблицы для GORM
@@ -41,7 +41,14 @@ func (m *Event) FromDomain(e *entity.Event) {
 	m.DurationSec = e.DurationSec
 	m.BytesUp = e.BytesUp
 	m.BytesDown = e.BytesDown
-	m.Meta = e.Meta
+
+	// Конвертируем map в JSONB
+	if e.Meta != nil {
+		m.Meta = JSONB(e.Meta)
+	} else {
+		m.Meta = make(JSONB)
+	}
+
 	m.CreatedAt = e.CreatedAt
 }
 
@@ -58,7 +65,7 @@ func (m *Event) ToDomain() *entity.Event {
 		DurationSec: m.DurationSec,
 		BytesUp:     m.BytesUp,
 		BytesDown:   m.BytesDown,
-		Meta:        m.Meta,
+		Meta:        map[string]interface{}(m.Meta), // Конвертируем JSONB в map
 		CreatedAt:   m.CreatedAt,
 	}
 }
