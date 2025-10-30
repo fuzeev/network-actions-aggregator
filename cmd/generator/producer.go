@@ -38,6 +38,7 @@ type eventMessage struct {
 	EventID     string                 `json:"event_id"`
 	SourceID    string                 `json:"source_id"`
 	UserID      string                 `json:"user_id"`
+	Phone       string                 `json:"phone,omitempty"`
 	Type        string                 `json:"type"`
 	StartedAt   string                 `json:"started_at"`
 	EndedAt     *string                `json:"ended_at,omitempty"`
@@ -92,6 +93,7 @@ func (p *KafkaProducer) eventToMessage(event *entity.Event) eventMessage {
 		EventID:     event.EventID.String(),
 		SourceID:    event.SourceID.String(),
 		UserID:      event.UserID.String(),
+		Phone:       event.Phone,
 		Type:        string(event.Type),
 		StartedAt:   event.StartedAt.Format(time.RFC3339),
 		DurationSec: event.DurationSec,

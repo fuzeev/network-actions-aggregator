@@ -2,11 +2,11 @@ package kafka
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/segmentio/kafka-go"
 	"network-actions-aggregator/internal/domain/entity"
+	"network-actions-aggregator/internal/handler/consumer"
 	"network-actions-aggregator/pkg/logger"
 )
 
@@ -103,13 +103,18 @@ func (c *Consumer) ConsumeEvents(ctx context.Context, eventsChan chan<- *entity.
 
 // parseEvent парсит JSON в Event
 func (c *Consumer) parseEvent(data []byte) (*entity.Event, error) {
-	var event entity.Event
-	err := json.Unmarshal(data, &event)
+	// Используем KafkaEventMessage для корректной десериализации JSON
+	kafkaMsg, err := consumer.UnmarshalKafkaMessage(data)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to unmarshal kafka message: %w", err)
 	}
 
-	return &event, nil
+	event, err := kafkaMsg.ToEvent()
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert kafka message to event: %w", err)
+	}
+
+	return event, nil
 }
 
 // Close закрывает consumer
