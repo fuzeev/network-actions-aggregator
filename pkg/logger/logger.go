@@ -2,9 +2,9 @@ package logger
 
 // Logger интерфейс для логирования
 type Logger interface {
-	Debug(msg string, keysAndValues ...interface{})
-	Info(msg string, keysAndValues ...interface{})
-	Warn(msg string, keysAndValues ...interface{})
-	Error(msg string, keysAndValues ...interface{})
-	Fatal(msg string, keysAndValues ...interface{})
+	Debug(msg string, fields map[string]interface{})
+	Info(msg string, fields map[string]interface{})
+	Warn(msg string, fields map[string]interface{})
+	Error(msg string, fields map[string]interface{})
+	Fatal(msg string, fields map[string]interface{})
 }

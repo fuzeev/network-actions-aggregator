@@ -82,10 +82,11 @@ func run() error {
 	}
 	defer sqlDB.Close()
 
-	log.Info("connected to database",
-		"host", dbConfig.Host,
-		"port", dbConfig.Port,
-		"database", dbConfig.DBName)
+	log.Info("connected to database", map[string]interface{}{
+		"host":     dbConfig.Host,
+		"port":     dbConfig.Port,
+		"database": dbConfig.DBName,
+	})
 
 	// Инициализация репозитория и usecase
 	eventRepo := postgresRepo.NewEventRepository(db)
@@ -113,7 +114,9 @@ func run() error {
 	go func() {
 		defer wg.Done()
 		if err := consumer.ConsumeEvents(ctx, eventsChan); err != nil {
-			log.Error("kafka consumer error", "error", err)
+			log.Error("kafka consumer error", map[string]interface{}{
+				"error": err,
+			})
 		}
 	}()
 
@@ -122,7 +125,9 @@ func run() error {
 	go func() {
 		defer wg.Done()
 		if err := ingestUC.ProcessEvents(ctx, eventsChan); err != nil {
-			log.Error("usecase error", "error", err)
+			log.Error("usecase error", map[string]interface{}{
+				"error": err,
+			})
 		}
 	}()
 
@@ -139,24 +144,28 @@ func run() error {
 				return
 			case <-ticker.C:
 				stats := consumer.Stats()
-				log.Info("kafka consumer stats",
-					"messages", stats.Messages,
-					"bytes", stats.Bytes,
-					"lag", stats.Lag,
-					"offset", stats.Offset)
+				log.Info("kafka consumer stats", map[string]interface{}{
+					"messages": stats.Messages,
+					"bytes":    stats.Bytes,
+					"lag":      stats.Lag,
+					"offset":   stats.Offset,
+				})
 			}
 		}
 	}()
 
-	log.Info("ingestor started",
-		"kafka_topic", kafkaConfig.Topic,
-		"kafka_brokers", kafkaConfig.Brokers,
-		"batch_size", usecaseConfig.BatchSize,
-		"workers", usecaseConfig.WorkersCount)
+	log.Info("ingestor started", map[string]interface{}{
+		"kafka_topic":   kafkaConfig.Topic,
+		"kafka_brokers": kafkaConfig.Brokers,
+		"batch_size":    usecaseConfig.BatchSize,
+		"workers":       usecaseConfig.WorkersCount,
+	})
 
 	// Ожидание сигнала завершения
 	sig := <-sigChan
-	log.Info("received shutdown signal", "signal", sig)
+	log.Info("received shutdown signal", map[string]interface{}{
+		"signal": sig,
+	})
 
 	// Graceful shutdown
 	cancel()
@@ -170,9 +179,9 @@ func run() error {
 
 	select {
 	case <-done:
-		log.Info("shutdown completed successfully")
+		log.Info("shutdown completed successfully", nil)
 	case <-time.After(30 * time.Second):
-		log.Warn("shutdown timeout exceeded")
+		log.Warn("shutdown timeout exceeded", nil)
 		return fmt.Errorf("shutdown timeout")
 	}
 

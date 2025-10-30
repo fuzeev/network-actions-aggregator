@@ -18,33 +18,33 @@ func NewLogger() Logger {
 	}
 }
 
-func (l *stdLogger) format(level, msg string, keysAndValues ...interface{}) string {
+func (l *stdLogger) format(level, msg string, fields map[string]interface{}) string {
 	formatted := fmt.Sprintf("[%s] %s", level, msg)
-	for i := 0; i < len(keysAndValues); i += 2 {
-		if i+1 < len(keysAndValues) {
-			formatted += fmt.Sprintf(" %v=%v", keysAndValues[i], keysAndValues[i+1])
+	if fields != nil {
+		for key, value := range fields {
+			formatted += fmt.Sprintf(" %s=%v", key, value)
 		}
 	}
 	return formatted
 }
 
-func (l *stdLogger) Debug(msg string, keysAndValues ...interface{}) {
-	l.logger.Output(2, l.format("DEBUG", msg, keysAndValues...))
+func (l *stdLogger) Debug(msg string, fields map[string]interface{}) {
+	l.logger.Output(2, l.format("DEBUG", msg, fields))
 }
 
-func (l *stdLogger) Info(msg string, keysAndValues ...interface{}) {
-	l.logger.Output(2, l.format("INFO", msg, keysAndValues...))
+func (l *stdLogger) Info(msg string, fields map[string]interface{}) {
+	l.logger.Output(2, l.format("INFO", msg, fields))
 }
 
-func (l *stdLogger) Warn(msg string, keysAndValues ...interface{}) {
-	l.logger.Output(2, l.format("WARN", msg, keysAndValues...))
+func (l *stdLogger) Warn(msg string, fields map[string]interface{}) {
+	l.logger.Output(2, l.format("WARN", msg, fields))
 }
 
-func (l *stdLogger) Error(msg string, keysAndValues ...interface{}) {
-	l.logger.Output(2, l.format("ERROR", msg, keysAndValues...))
+func (l *stdLogger) Error(msg string, fields map[string]interface{}) {
+	l.logger.Output(2, l.format("ERROR", msg, fields))
 }
 
-func (l *stdLogger) Fatal(msg string, keysAndValues ...interface{}) {
-	l.logger.Output(2, l.format("FATAL", msg, keysAndValues...))
+func (l *stdLogger) Fatal(msg string, fields map[string]interface{}) {
+	l.logger.Output(2, l.format("FATAL", msg, fields))
 	os.Exit(1)
 }

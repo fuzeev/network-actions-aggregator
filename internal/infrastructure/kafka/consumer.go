@@ -52,18 +52,18 @@ func (c *Consumer) ConsumeEvents(ctx context.Context, eventsChan chan<- *entity.
 	for {
 		select {
 		case <-ctx.Done():
-			c.logger.Info("consumer stopped, context done")
+			c.logger.Info("consumer stopped, context done", nil)
 			return c.Close()
 		default:
 			msg, err := c.reader.FetchMessage(ctx)
 
 			if err != nil {
 				if errors.Is(err, context.Canceled) {
-					c.logger.Info("consumer stopped, context done")
+					c.logger.Info("consumer stopped, context done", nil)
 					return c.Close()
 				}
 
-				c.logger.Error("unable to fetch message: " + err.Error())
+				c.logger.Error("unable to fetch message: "+err.Error(), nil)
 				//TODO: реализовать паттерн Retry with Exponential Backoff, пробовать подключаться с таймаутами
 				continue
 			}
@@ -79,7 +79,7 @@ func (c *Consumer) ConsumeEvents(ctx context.Context, eventsChan chan<- *entity.
 				//невалидные сообщения тоже коммитим чтобы не блочили нам очередь
 				err = c.reader.CommitMessages(ctx, msg)
 				if err != nil {
-					c.logger.Error("unable to commit message: " + err.Error())
+					c.logger.Error("unable to commit message: "+err.Error(), nil)
 				}
 
 				continue
@@ -89,12 +89,12 @@ func (c *Consumer) ConsumeEvents(ctx context.Context, eventsChan chan<- *entity.
 			case <-ctx.Done():
 				return fmt.Errorf("context canceled")
 			case eventsChan <- event:
-				c.logger.Info("read and parsed event from kafka with id " + event.EventID.String())
+				c.logger.Info("read and parsed event from kafka with id "+event.EventID.String(), nil)
 			}
 
 			err = c.reader.CommitMessages(ctx, msg)
 			if err != nil {
-				c.logger.Error("unable to commit message: " + err.Error())
+				c.logger.Error("unable to commit message: "+err.Error(), nil)
 				continue
 			}
 		}
@@ -119,7 +119,7 @@ func (c *Consumer) Close() error {
 		return err
 	}
 
-	c.logger.Info("kafka reader stopped")
+	c.logger.Info("kafka reader stopped", nil)
 
 	return nil
 }

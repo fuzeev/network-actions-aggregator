@@ -73,10 +73,11 @@ func (uc *IngestEventsUseCase) worker(ctx context.Context, workerID int, eventsC
 			// Сохраняем оставшиеся события перед выходом
 			if len(batch) > 0 {
 				if err := uc.saveBatchWithRetry(ctx, batch); err != nil {
-					uc.logger.Error("failed to save remaining batch on shutdown",
-						"worker", workerID,
-						"batch_size", len(batch),
-						"error", err)
+					uc.logger.Error("failed to save remaining batch on shutdown", map[string]interface{}{
+						"worker":     workerID,
+						"batch_size": len(batch),
+						"error":      err,
+					})
 					return err
 				}
 			}
@@ -87,10 +88,11 @@ func (uc *IngestEventsUseCase) worker(ctx context.Context, workerID int, eventsC
 				// Канал закрыт, сохраняем оставшиеся события
 				if len(batch) > 0 {
 					if err := uc.saveBatchWithRetry(ctx, batch); err != nil {
-						uc.logger.Error("failed to save remaining batch on channel close",
-							"worker", workerID,
-							"batch_size", len(batch),
-							"error", err)
+						uc.logger.Error("failed to save remaining batch on channel close", map[string]interface{}{
+							"worker":     workerID,
+							"batch_size": len(batch),
+							"error":      err,
+						})
 						return err
 					}
 				}
@@ -99,10 +101,11 @@ func (uc *IngestEventsUseCase) worker(ctx context.Context, workerID int, eventsC
 
 			// Валидируем событие
 			if err := event.Validate(); err != nil {
-				uc.logger.Warn("invalid event received",
-					"worker", workerID,
-					"event_id", event.EventID,
-					"error", err)
+				uc.logger.Warn("invalid event received", map[string]interface{}{
+					"worker":   workerID,
+					"event_id": event.EventID,
+					"error":    err,
+				})
 				continue
 			}
 
@@ -111,10 +114,11 @@ func (uc *IngestEventsUseCase) worker(ctx context.Context, workerID int, eventsC
 			// Сохраняем при достижении размера батча
 			if len(batch) >= uc.config.BatchSize {
 				if err := uc.saveBatchWithRetry(ctx, batch); err != nil {
-					uc.logger.Error("failed to save batch",
-						"worker", workerID,
-						"batch_size", len(batch),
-						"error", err)
+					uc.logger.Error("failed to save batch", map[string]interface{}{
+						"worker":     workerID,
+						"batch_size": len(batch),
+						"error":      err,
+					})
 					return err
 				}
 				batch = batch[:0] // Очищаем batch
@@ -125,10 +129,11 @@ func (uc *IngestEventsUseCase) worker(ctx context.Context, workerID int, eventsC
 			// Сохраняем по таймауту, если есть события
 			if len(batch) > 0 {
 				if err := uc.saveBatchWithRetry(ctx, batch); err != nil {
-					uc.logger.Error("failed to save batch on timeout",
-						"worker", workerID,
-						"batch_size", len(batch),
-						"error", err)
+					uc.logger.Error("failed to save batch on timeout", map[string]interface{}{
+						"worker":     workerID,
+						"batch_size": len(batch),
+						"error":      err,
+					})
 					return err
 				}
 				batch = batch[:0] // Очищаем batch
@@ -152,16 +157,18 @@ func (uc *IngestEventsUseCase) saveBatchWithRetry(ctx context.Context, batch []*
 
 		if err := uc.eventRepo.BatchInsert(ctx, batch); err != nil {
 			lastErr = err
-			uc.logger.Warn("batch insert attempt failed",
-				"attempt", attempt+1,
-				"batch_size", len(batch),
-				"error", err)
+			uc.logger.Warn("batch insert attempt failed", map[string]interface{}{
+				"attempt":    attempt + 1,
+				"batch_size": len(batch),
+				"error":      err,
+			})
 			continue
 		}
 
-		uc.logger.Debug("batch saved successfully",
-			"batch_size", len(batch),
-			"attempt", attempt+1)
+		uc.logger.Debug("batch saved successfully", map[string]interface{}{
+			"batch_size": len(batch),
+			"attempt":    attempt + 1,
+		})
 		return nil
 	}
 
