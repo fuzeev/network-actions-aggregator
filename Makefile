@@ -167,4 +167,4 @@ run-api: ## Запустить api локально
 
 run-generator: ## Запустить generator локально (100k событий + 1k дубликатов)
 	@echo "$(CYAN)Запуск generator...$(NC)"
-	go run cmd/generator/main.go
+	go run ./cmd/generator
