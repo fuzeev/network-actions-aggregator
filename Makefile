@@ -165,10 +165,6 @@ run-api: ## Запустить api локально
 	@echo "$(CYAN)Запуск api...$(NC)"
 	go run cmd/api/main.go
 
-run-generator: ## Запустить generator локально
+run-generator: ## Запустить generator локально (100k событий + 1k дубликатов)
 	@echo "$(CYAN)Запуск generator...$(NC)"
-	go run cmd/generator/*.go
-
-load-test: ## Стресс-тест: 10000 событий/сек, 3 минуты
-	@echo "$(RED)СТРЕСС-ТЕСТ (10000 событий/сек, 3 мин)...$(NC)"
-	GENERATOR_EVENTS_PER_SEC=10000 GENERATOR_DURATION=3m GENERATOR_WORKERS=12 GENERATOR_BATCH_SIZE=500 go run cmd/generator/*.go
+	go run cmd/generator/main.go

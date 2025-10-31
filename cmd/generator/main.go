@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/signal"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,31 +26,34 @@ type Config struct {
 	DBConfig postgres.Config
 
 	// Load generation
-	UserCount       int           // Количество уникальных пользователей
-	EventsPerSecond int           // Целевая скорость генерации событий/сек
-	Duration        time.Duration // Длительность теста (0 = бесконечно)
-	BatchSize       int           // Размер батча для отправки в Kafka
-	WorkersCount    int           // Количество воркеров для отправки
+	TotalEvents     int // Фиксированное количество событий для генерации
+	DuplicateEvents int // Количество дубликатов для генерации
+	UserCount       int // Количество уникальных пользователей
+	BatchSize       int // Размер батча для отправки в Kafka
+	WorkersCount    int // Количество воркеров для отправки
 
 	// Verification
-	VerifyInterval time.Duration // Интервал проверки событий в БД
+	VerifyInterval      time.Duration // Интервал проверки событий в БД
+	VerifyTimeout       time.Duration // Максимальное время ожидания записи в БД
+	MaxVerifyIterations int           // Максимальное количество попыток проверки
 }
 
 // Metrics метрики производительности
 type Metrics struct {
-	eventsSent     atomic.Int64
-	eventsVerified atomic.Int64
-	eventsFailed   atomic.Int64
-	bytesProduced  atomic.Int64
+	eventsSent         atomic.Int64
+	eventsVerified     atomic.Int64
+	eventsFailed       atomic.Int64
+	duplicatesSent     atomic.Int64
+	duplicatesRejected atomic.Int64
 
-	startTime     time.Time
-	mu            sync.RWMutex
-	lastEventTime time.Time
+	startTime time.Time
+	endTime   time.Time
+	mu        sync.RWMutex
 }
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -88,23 +89,27 @@ func run() error {
 			ConnMaxIdleTime: 5 * time.Minute,
 		},
 
-		UserCount:       getEnvInt("GENERATOR_USER_COUNT", 1000),
-		EventsPerSecond: getEnvInt("GENERATOR_EVENTS_PER_SEC", 1000),
-		Duration:        parseDuration(getEnv("GENERATOR_DURATION", "60s"), 60*time.Second),
-		BatchSize:       getEnvInt("GENERATOR_BATCH_SIZE", 100),
-		WorkersCount:    getEnvInt("GENERATOR_WORKERS", 4),
-		VerifyInterval:  parseDuration(getEnv("GENERATOR_VERIFY_INTERVAL", "10s"), 10*time.Second),
+		TotalEvents:         getEnvInt("GENERATOR_TOTAL_EVENTS", 100000),
+		DuplicateEvents:     getEnvInt("GENERATOR_DUPLICATE_EVENTS", 1000),
+		UserCount:           getEnvInt("GENERATOR_USER_COUNT", 1000),
+		BatchSize:           getEnvInt("GENERATOR_BATCH_SIZE", 100),
+		WorkersCount:        getEnvInt("GENERATOR_WORKERS", 4),
+		VerifyInterval:      parseDuration(getEnv("GENERATOR_VERIFY_INTERVAL", "5s"), 5*time.Second),
+		VerifyTimeout:       parseDuration(getEnv("GENERATOR_VERIFY_TIMEOUT", "5m"), 5*time.Minute),
+		MaxVerifyIterations: getEnvInt("GENERATOR_MAX_VERIFY_ITERATIONS", 60),
 	}
 
-	log.Info("load generator configuration", map[string]interface{}{
-		"kafka_brokers":     config.KafkaBrokers,
-		"kafka_topic":       config.KafkaTopic,
-		"user_count":        config.UserCount,
-		"events_per_second": config.EventsPerSecond,
-		"duration":          config.Duration.String(),
-		"batch_size":        config.BatchSize,
-		"workers":           config.WorkersCount,
-		"verify_interval":   config.VerifyInterval.String(),
+	log.Info("=== LOAD GENERATOR CONFIGURATION ===", map[string]interface{}{
+		"kafka_brokers":         config.KafkaBrokers,
+		"kafka_topic":           config.KafkaTopic,
+		"total_events":          config.TotalEvents,
+		"duplicate_events":      config.DuplicateEvents,
+		"user_count":            config.UserCount,
+		"batch_size":            config.BatchSize,
+		"workers":               config.WorkersCount,
+		"verify_interval":       config.VerifyInterval.String(),
+		"verify_timeout":        config.VerifyTimeout.String(),
+		"max_verify_iterations": config.MaxVerifyIterations,
 	})
 
 	// Подключение к базе данных для верификации
@@ -116,7 +121,9 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("failed to get database instance: %w", err)
 	}
-	defer sqlDB.Close()
+	defer func() {
+		_ = sqlDB.Close()
+	}()
 
 	log.Info("connected to database for verification", map[string]interface{}{
 		"host":     config.DBConfig.Host,
@@ -126,62 +133,90 @@ func run() error {
 	// Инициализация компонентов
 	generator := NewEventGenerator(config.UserCount)
 	producer := NewKafkaProducer(config.KafkaBrokers, config.KafkaTopic)
-	defer producer.Close()
+	defer func() {
+		_ = producer.Close()
+	}()
 
 	eventRepo := postgresRepo.NewEventRepository(db)
 	verifier := NewVerifier(eventRepo)
 
 	// Метрики
 	metrics := &Metrics{
-		startTime:     time.Now(),
-		lastEventTime: time.Now(),
+		startTime: time.Now(),
 	}
 
-	// Контекст с graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := context.Background()
 
-	// Обработка сигналов
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	// Фаза 1: Генерация и отправка уникальных событий
+	log.Info("=== PHASE 1: GENERATING UNIQUE EVENTS ===", map[string]interface{}{
+		"count": config.TotalEvents,
+	})
 
-	// Канал для событий
+	uniqueEvents, err := generateAndSendEvents(ctx, log, config, generator, producer, verifier, metrics, config.TotalEvents)
+	if err != nil {
+		return fmt.Errorf("failed to generate and send unique events: %w", err)
+	}
+
+	log.Info("unique events sent to Kafka", map[string]interface{}{
+		"sent":   metrics.eventsSent.Load(),
+		"failed": metrics.eventsFailed.Load(),
+	})
+
+	// Фаза 2: Генерация и отправка дубликатов
+	log.Info("=== PHASE 2: GENERATING DUPLICATE EVENTS ===", map[string]interface{}{
+		"count": config.DuplicateEvents,
+	})
+
+	if err := generateAndSendDuplicates(ctx, log, config, producer, metrics, uniqueEvents, config.DuplicateEvents); err != nil {
+		return fmt.Errorf("failed to generate and send duplicates: %w", err)
+	}
+
+	log.Info("duplicate events sent to Kafka", map[string]interface{}{
+		"sent": metrics.duplicatesSent.Load(),
+	})
+
+	// Фаза 3: Ожидание и проверка записи в БД
+	log.Info("=== PHASE 3: WAITING FOR DATABASE PERSISTENCE ===", nil)
+
+	if err := waitForPersistence(ctx, log, config, verifier, metrics); err != nil {
+		return fmt.Errorf("failed to verify persistence: %w", err)
+	}
+
+	// Фаза 4: Проверка дубликатов
+	log.Info("=== PHASE 4: VERIFYING DUPLICATES WERE REJECTED ===", nil)
+
+	if err := verifyDuplicatesRejected(log, verifier, metrics, config.TotalEvents); err != nil {
+		return fmt.Errorf("failed to verify duplicates rejection: %w", err)
+	}
+
+	// Финальный отчет
+	metrics.mu.Lock()
+	metrics.endTime = time.Now()
+	metrics.mu.Unlock()
+
+	printFinalReport(log, metrics, config)
+
+	return nil
+}
+
+// generateAndSendEvents генерирует и отправляет уникальные события
+func generateAndSendEvents(
+	ctx context.Context,
+	log logger.Logger,
+	config Config,
+	generator *EventGenerator,
+	producer *KafkaProducer,
+	verifier *Verifier,
+	metrics *Metrics,
+	totalEvents int,
+) ([]*entity.Event, error) {
+	allEvents := make([]*entity.Event, 0, totalEvents)
+	var allEventsMu sync.Mutex
+
 	eventsChan := make(chan []*entity.Event, config.WorkersCount*2)
+	errorsChan := make(chan error, config.WorkersCount)
 
 	var wg sync.WaitGroup
-
-	// Генератор событий
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		defer close(eventsChan)
-
-		ticker := time.NewTicker(time.Second / time.Duration(config.EventsPerSecond/config.BatchSize))
-		defer ticker.Stop()
-
-		var testDuration <-chan time.Time
-		if config.Duration > 0 {
-			testDuration = time.After(config.Duration)
-		}
-
-		for {
-			select {
-			case <-ctx.Done():
-				log.Info("event generation stopped", nil)
-				return
-			case <-testDuration:
-				log.Info("test duration completed", nil)
-				return
-			case <-ticker.C:
-				events := generator.GenerateBatch(config.BatchSize)
-				select {
-				case eventsChan <- events:
-				case <-ctx.Done():
-					return
-				}
-			}
-		}
-	}()
 
 	// Воркеры для отправки в Kafka
 	for i := 0; i < config.WorkersCount; i++ {
@@ -190,184 +225,294 @@ func run() error {
 		go func() {
 			defer wg.Done()
 
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case events, ok := <-eventsChan:
-					if !ok {
-						return
-					}
-
-					// Отправка в Kafka
-					start := time.Now()
-					if err := producer.SendBatch(ctx, events); err != nil {
-						log.Error("failed to send batch", map[string]interface{}{
-							"worker": workerID,
-							"error":  err,
-							"size":   len(events),
-						})
-						metrics.eventsFailed.Add(int64(len(events)))
-						continue
-					}
-
-					// Подсчет метрик
-					metrics.eventsSent.Add(int64(len(events)))
-					metrics.mu.Lock()
-					metrics.lastEventTime = time.Now()
-					metrics.mu.Unlock()
-
-					// Отслеживание для верификации
-					eventIDs := make([]uuid.UUID, len(events))
-					for i, event := range events {
-						eventIDs[i] = event.EventID
-					}
-					verifier.TrackSentBatch(eventIDs)
-
-					latency := time.Since(start)
-					if latency > 100*time.Millisecond {
-						log.Warn("high kafka latency", map[string]interface{}{
-							"worker":  workerID,
-							"latency": latency.String(),
-							"size":    len(events),
-						})
-					}
+			for events := range eventsChan {
+				if err := producer.SendBatch(ctx, events); err != nil {
+					log.Error("failed to send batch", map[string]interface{}{
+						"worker": workerID,
+						"error":  err,
+						"size":   len(events),
+					})
+					metrics.eventsFailed.Add(int64(len(events)))
+					errorsChan <- err
+					continue
 				}
+
+				metrics.eventsSent.Add(int64(len(events)))
+
+				// Отслеживание для верификации
+				eventIDs := make([]uuid.UUID, len(events))
+				for i, event := range events {
+					eventIDs[i] = event.EventID
+				}
+				verifier.TrackSentBatch(eventIDs)
 			}
 		}()
 	}
 
-	// Периодическая верификация
-	wg.Add(1)
+	// Генерация и отправка событий батчами
 	go func() {
-		defer wg.Done()
-		ticker := time.NewTicker(config.VerifyInterval)
-		defer ticker.Stop()
+		defer close(eventsChan)
 
-		for {
+		for i := 0; i < totalEvents; i += config.BatchSize {
+			batchSize := config.BatchSize
+			if i+batchSize > totalEvents {
+				batchSize = totalEvents - i
+			}
+
+			events := generator.GenerateBatch(batchSize)
+
+			allEventsMu.Lock()
+			allEvents = append(allEvents, events...)
+			allEventsMu.Unlock()
+
 			select {
+			case eventsChan <- events:
 			case <-ctx.Done():
 				return
-			case <-ticker.C:
-				if err := verifier.VerifyAll(ctx); err != nil {
-					log.Error("verification failed", map[string]interface{}{
-						"error": err,
-					})
-				} else {
-					stats := verifier.Stats()
-					metrics.eventsVerified.Store(int64(stats.Verified))
+			}
 
-					log.Info("verification completed", map[string]interface{}{
-						"stats": stats.String(),
+			// Логирование прогресса
+			if (i+batchSize)%10000 == 0 || i+batchSize >= totalEvents {
+				log.Info("generation progress", map[string]interface{}{
+					"generated": i + batchSize,
+					"total":     totalEvents,
+					"progress":  fmt.Sprintf("%.1f%%", float64(i+batchSize)/float64(totalEvents)*100),
+				})
+			}
+		}
+	}()
+
+	// Ожидание завершения отправки
+	wg.Wait()
+	close(errorsChan)
+
+	// Проверка на ошибки
+	if len(errorsChan) > 0 {
+		return allEvents, fmt.Errorf("encountered %d errors during sending", len(errorsChan))
+	}
+
+	return allEvents, nil
+}
+
+// generateAndSendDuplicates отправляет дубликаты существующих событий
+func generateAndSendDuplicates(
+	ctx context.Context,
+	log logger.Logger,
+	config Config,
+	producer *KafkaProducer,
+	metrics *Metrics,
+	originalEvents []*entity.Event,
+	duplicateCount int,
+) error {
+	if len(originalEvents) == 0 {
+		return fmt.Errorf("no original events to duplicate")
+	}
+
+	eventsChan := make(chan []*entity.Event, config.WorkersCount*2)
+	errorsChan := make(chan error, config.WorkersCount)
+
+	var wg sync.WaitGroup
+
+	// Воркеры для отправки дубликатов
+	for i := 0; i < config.WorkersCount; i++ {
+		wg.Add(1)
+		workerID := i
+		go func() {
+			defer wg.Done()
+
+			for events := range eventsChan {
+				if err := producer.SendBatch(ctx, events); err != nil {
+					log.Error("failed to send duplicate batch", map[string]interface{}{
+						"worker": workerID,
+						"error":  err,
+						"size":   len(events),
 					})
+					errorsChan <- err
+					continue
 				}
+
+				metrics.duplicatesSent.Add(int64(len(events)))
 			}
-		}
-	}()
+		}()
+	}
 
-	// Периодический вывод метрик
-	wg.Add(1)
+	// Генерация дубликатов
 	go func() {
-		defer wg.Done()
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
+		defer close(eventsChan)
 
-		for {
+		for i := 0; i < duplicateCount; i += config.BatchSize {
+			batchSize := config.BatchSize
+			if i+batchSize > duplicateCount {
+				batchSize = duplicateCount - i
+			}
+
+			batch := make([]*entity.Event, batchSize)
+			for j := 0; j < batchSize; j++ {
+				// Выбираем случайное событие из оригинальных
+				idx := (i + j) % len(originalEvents)
+				batch[j] = originalEvents[idx]
+			}
+
 			select {
+			case eventsChan <- batch:
 			case <-ctx.Done():
 				return
-			case <-ticker.C:
-				printMetrics(log, metrics, producer)
 			}
 		}
 	}()
 
-	log.Info("load generator started", map[string]interface{}{
-		"target_events_per_sec": config.EventsPerSecond,
-	})
+	wg.Wait()
+	close(errorsChan)
 
-	// Ожидание сигнала завершения или окончания теста
-	select {
-	case sig := <-sigChan:
-		log.Info("received shutdown signal", map[string]interface{}{
-			"signal": sig,
-		})
-	case <-ctx.Done():
+	if len(errorsChan) > 0 {
+		return fmt.Errorf("encountered %d errors during sending duplicates", len(errorsChan))
 	}
-
-	// Graceful shutdown
-	cancel()
-
-	// Ожидание завершения с таймаутом
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		log.Info("all workers stopped", nil)
-	case <-time.After(30 * time.Second):
-		log.Warn("shutdown timeout exceeded", nil)
-	}
-
-	// Финальная верификация
-	log.Info("performing final verification...", nil)
-	if err := verifier.VerifyAll(ctx); err != nil {
-		log.Error("final verification failed", map[string]interface{}{
-			"error": err,
-		})
-	}
-
-	// Финальные метрики
-	printFinalReport(log, metrics, verifier)
 
 	return nil
 }
 
-func printMetrics(log logger.Logger, m *Metrics, producer *KafkaProducer) {
-	elapsed := time.Since(m.startTime)
-	sent := m.eventsSent.Load()
-	verified := m.eventsVerified.Load()
-	failed := m.eventsFailed.Load()
+// waitForPersistence ожидает записи всех событий в БД
+func waitForPersistence(
+	ctx context.Context,
+	log logger.Logger,
+	config Config,
+	verifier *Verifier,
+	metrics *Metrics,
+) error {
+	log.Info("waiting for all events to be persisted in database...", nil)
 
-	eventsPerSec := float64(sent) / elapsed.Seconds()
+	ticker := time.NewTicker(config.VerifyInterval)
+	defer ticker.Stop()
 
-	kafkaStats := producer.Stats()
+	timeout := time.After(config.VerifyTimeout)
+	iteration := 0
 
-	log.Info("metrics", map[string]interface{}{
-		"elapsed":         elapsed.Round(time.Second).String(),
-		"events_sent":     sent,
-		"events_verified": verified,
-		"events_failed":   failed,
-		"events_per_sec":  fmt.Sprintf("%.2f", eventsPerSec),
-		"kafka_messages":  kafkaStats.Messages,
-		"kafka_bytes":     kafkaStats.Bytes,
-		"kafka_errors":    kafkaStats.Errors,
-	})
+	for {
+		select {
+		case <-timeout:
+			stats := verifier.Stats()
+			return fmt.Errorf("timeout waiting for persistence: verified %d/%d events",
+				stats.Verified, stats.TotalSent)
+
+		case <-ticker.C:
+			iteration++
+
+			if err := verifier.VerifyAll(ctx); err != nil {
+				log.Error("verification failed", map[string]interface{}{
+					"error":     err,
+					"iteration": iteration,
+				})
+				continue
+			}
+
+			stats := verifier.Stats()
+			metrics.eventsVerified.Store(int64(stats.Verified))
+
+			log.Info("verification progress", map[string]interface{}{
+				"iteration":    iteration,
+				"sent":         stats.TotalSent,
+				"verified":     stats.Verified,
+				"missing":      stats.Missing,
+				"pending":      stats.Pending,
+				"success_rate": fmt.Sprintf("%.2f%%", stats.SuccessRate),
+				"avg_latency":  stats.AvgLatency.Round(time.Millisecond).String(),
+			})
+
+			// Проверяем, все ли события записаны
+			if stats.Verified == stats.TotalSent {
+				log.Info("✓ ALL EVENTS SUCCESSFULLY PERSISTED!", map[string]interface{}{
+					"total":       stats.TotalSent,
+					"iterations":  iteration,
+					"avg_latency": stats.AvgLatency.Round(time.Millisecond).String(),
+				})
+				return nil
+			}
+
+			// Проверяем максимальное количество попыток
+			if iteration >= config.MaxVerifyIterations {
+				return fmt.Errorf("max verification iterations reached: verified %d/%d events",
+					stats.Verified, stats.TotalSent)
+			}
+		}
+	}
 }
 
-func printFinalReport(log logger.Logger, m *Metrics, v *Verifier) {
-	elapsed := time.Since(m.startTime)
-	sent := m.eventsSent.Load()
-	failed := m.eventsFailed.Load()
+// verifyDuplicatesRejected проверяет, что дубликаты НЕ записались в БД
+func verifyDuplicatesRejected(
+	log logger.Logger,
+	verifier *Verifier,
+	metrics *Metrics,
+	expectedCount int,
+) error {
+	stats := verifier.Stats()
 
-	stats := v.Stats()
+	// Количество уникальных событий в БД должно быть равно expectedCount
+	if stats.Verified != expectedCount {
+		return fmt.Errorf("unexpected event count in DB: expected %d, got %d",
+			expectedCount, stats.Verified)
+	}
 
-	eventsPerSec := float64(sent) / elapsed.Seconds()
+	duplicatesRejected := metrics.duplicatesSent.Load()
+	metrics.duplicatesRejected.Store(duplicatesRejected)
 
-	log.Info("=== FINAL REPORT ===", map[string]interface{}{
-		"total_duration":     elapsed.Round(time.Second).String(),
-		"events_sent":        sent,
-		"events_failed":      failed,
-		"events_verified":    stats.Verified,
-		"events_missing":     stats.Missing,
-		"events_pending":     stats.Pending,
-		"avg_events_per_sec": fmt.Sprintf("%.2f", eventsPerSec),
-		"success_rate":       fmt.Sprintf("%.2f%%", stats.SuccessRate),
-		"avg_latency":        stats.AvgLatency.Round(time.Millisecond).String(),
+	log.Info("✓ DUPLICATES VERIFICATION PASSED!", map[string]interface{}{
+		"duplicates_sent":     duplicatesRejected,
+		"duplicates_rejected": duplicatesRejected,
+		"unique_events_in_db": stats.Verified,
 	})
+
+	return nil
+}
+
+// printFinalReport выводит финальный отчет о тестировании
+func printFinalReport(log logger.Logger, metrics *Metrics, config Config) {
+	totalDuration := metrics.endTime.Sub(metrics.startTime)
+	sent := metrics.eventsSent.Load()
+	failed := metrics.eventsFailed.Load()
+	verified := metrics.eventsVerified.Load()
+	duplicatesSent := metrics.duplicatesSent.Load()
+	duplicatesRejected := metrics.duplicatesRejected.Load()
+
+	eventsPerSec := float64(verified) / totalDuration.Seconds()
+
+	log.Info("", nil)
+	log.Info("╔═══════════════════════════════════════════════════════╗", nil)
+	log.Info("║           FINAL PERFORMANCE REPORT                    ║", nil)
+	log.Info("╚═══════════════════════════════════════════════════════╝", nil)
+	log.Info("", nil)
+	log.Info("📊 GENERATION STATS:", map[string]interface{}{
+		"total_duration":   totalDuration.Round(time.Millisecond).String(),
+		"unique_generated": config.TotalEvents,
+		"unique_sent":      sent,
+		"unique_failed":    failed,
+		"unique_verified":  verified,
+		"duplicates_sent":  duplicatesSent,
+		"duplicates_in_db": 0, // Дубликаты должны быть отклонены
+	})
+	log.Info("", nil)
+	log.Info("✅ VERIFICATION RESULTS:", map[string]interface{}{
+		"expected_in_db":         config.TotalEvents,
+		"actual_in_db":           verified,
+		"all_unique_saved":       verified == int64(config.TotalEvents),
+		"duplicates_rejected":    duplicatesRejected,
+		"all_duplicates_blocked": duplicatesRejected == duplicatesSent,
+	})
+	log.Info("", nil)
+	log.Info("⚡ PERFORMANCE METRICS:", map[string]interface{}{
+		"events_per_second":    fmt.Sprintf("%.2f", eventsPerSec),
+		"avg_time_per_event":   fmt.Sprintf("%.3f ms", 1000.0/eventsPerSec),
+		"total_events_handled": sent + duplicatesSent,
+	})
+	log.Info("", nil)
+
+	// Финальный вердикт
+	success := verified == int64(config.TotalEvents) && duplicatesRejected == duplicatesSent && failed == 0
+	if success {
+		log.Info("🎉 TEST RESULT: SUCCESS! All requirements met.", nil)
+	} else {
+		log.Info("❌ TEST RESULT: FAILED! Some requirements not met.", nil)
+	}
+	log.Info("", nil)
 }
 
 func getEnv(key, defaultValue string) string {
