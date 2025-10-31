@@ -24,7 +24,5 @@ WORKDIR /root/
 
 COPY --from=builder /bin/aggregator .
 
-EXPOSE 6061
-
 CMD ["./aggregator"]
 

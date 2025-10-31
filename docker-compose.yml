@@ -118,72 +118,28 @@ services:
 
   # Сервис агрегации
   # aggregator:
-  #     - POSTGRES_HOST=postgres
-  #     - POSTGRES_PORT=5432
-  #     - POSTGRES_USER=${POSTGRES_USER}
-  #     - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-  #     - POSTGRES_DB=${POSTGRES_DB}
-  #     - POSTGRES_SSLMODE=${POSTGRES_SSLMODE}
-  #     - REDIS_HOST=redis
-  #     - REDIS_PORT=6379
-  #     - KAFKA_BROKERS=redpanda:29092
+  #   build:
   #     context: .
   #     dockerfile: docker/Dockerfile.aggregator
+  #   container_name: network-aggregator-aggregator
   #   environment:
-  #     - KAFKA_TOPIC=${KAFKA_TOPIC}
-  #     - KAFKA_GROUP_ID=${KAFKA_GROUP_ID_AGGREGATOR}
-  #     - KAFKA_GROUP_ID=aggregator-group
-  #     - WORKER_COUNT=${AGGREGATOR_WORKER_COUNT}
-  #     - REDIS_ADDR=redis:6379
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-  #     redpanda:
   #     - POSTGRES_HOST=postgres
   #     - POSTGRES_PORT=5432
   #     - POSTGRES_USER=${POSTGRES_USER}
   #     - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
   #     - POSTGRES_DB=${POSTGRES_DB}
   #     - POSTGRES_SSLMODE=${POSTGRES_SSLMODE}
-  #     - REDIS_HOST=redis
-  #     - REDIS_PORT=6379
-  #     - GRPC_PORT=${API_GRPC_PORT}
-  #     - HTTP_PORT=${API_HTTP_PORT}
-  #     - CACHE_DETAIL_TTL=${CACHE_DETAIL_TTL}
-  #     - CACHE_AGG_DAY_TTL=${CACHE_AGG_DAY_TTL}
-  #     - CACHE_AGG_MONTH_TTL=${CACHE_AGG_MONTH_TTL}
-  # API сервис (gRPC + HTTP)
-  #     - "${API_GRPC_PORT:-9090}:${API_GRPC_PORT:-9090}"  # gRPC
-  #     - "${API_HTTP_PORT:-8000}:${API_HTTP_PORT:-8000}"  # HTTP gateway
-  #     - HTTP_PORT=${API_HTTP_PORT}
-  #     - CACHE_DETAIL_TTL=${CACHE_DETAIL_TTL}
-  #     - CACHE_AGG_DAY_TTL=${CACHE_AGG_DAY_TTL}
-  #     - CACHE_AGG_MONTH_TTL=${CACHE_AGG_MONTH_TTL}
-  #     dockerfile: docker/Dockerfile.api
-  #     - "${API_GRPC_PORT:-9090}:${API_GRPC_PORT:-9090}"  # gRPC
-  #     - "${API_HTTP_PORT:-8000}:${API_HTTP_PORT:-8000}"  # HTTP gateway
-  #     - GRPC_PORT=${API_GRPC_PORT}
-  #     - HTTP_PORT=${API_HTTP_PORT}
-  #     - CACHE_DETAIL_TTL=${CACHE_DETAIL_TTL}
-  #     - CACHE_AGG_DAY_TTL=${CACHE_AGG_DAY_TTL}
-  #     - CACHE_AGG_MONTH_TTL=${CACHE_AGG_MONTH_TTL}
-  #     - CACHE_DETAIL_TTL=${CACHE_DETAIL_TTL}
-  #     - "${API_GRPC_PORT:-9090}:${API_GRPC_PORT:-9090}"  # gRPC
-  #     - "${API_HTTP_PORT:-8000}:${API_HTTP_PORT:-8000}"  # HTTP gateway
-  #     - GRPC_PORT=9090
-  #     - "${API_GRPC_PORT:-9090}:${API_GRPC_PORT:-9090}"  # gRPC
-  #     - "${API_HTTP_PORT:-8000}:${API_HTTP_PORT:-8000}"  # HTTP gateway
-  #     - "9090:9090"  # gRPC
-  #     - "8000:8000"  # HTTP gateway
+  #     - AGGREGATOR_INTERVAL=${AGGREGATOR_INTERVAL:-5m}
+  #     - AGGREGATOR_LOOKBACK=${AGGREGATOR_LOOKBACK:-1h}
+  #     - AGGREGATOR_BATCH_SIZE=${AGGREGATOR_BATCH_SIZE:-10000}
   #   depends_on:
   #     postgres:
-  #       condition: service_healthy
-  #     redis:
   #       condition: service_healthy
   #   networks:
   #     - network-aggregator
+
+  # API сервис (gRPC + HTTP)
+  # api:
 
 networks:
   network-aggregator:
