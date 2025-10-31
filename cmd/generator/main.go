@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"network-actions-aggregator/internal/domain/repository"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -187,6 +188,14 @@ func run() error {
 
 	if err := verifyDuplicatesRejected(log, verifier, metrics, config.TotalEvents); err != nil {
 		return fmt.Errorf("failed to verify duplicates rejection: %w", err)
+	}
+
+	// Фаза 5: Проверка агрегаций
+	log.Info("=== PHASE 5: VERIFYING AGGREGATIONS ===", nil)
+
+	aggregationRepo := postgresRepo.NewAggregationRepository(db)
+	if err := verifyAggregations(ctx, log, config, verifier, aggregationRepo, uniqueEvents); err != nil {
+		return fmt.Errorf("failed to verify aggregations: %w", err)
 	}
 
 	// Финальный отчет
@@ -461,6 +470,36 @@ func verifyDuplicatesRejected(
 		"unique_events_in_db": stats.Verified,
 	})
 
+	return nil
+}
+
+// verifyAggregations проверяет корректность агрегаций
+func verifyAggregations(
+	ctx context.Context,
+	log logger.Logger,
+	config Config,
+	verifier *Verifier,
+	aggregationRepo repository.AggregationRepository,
+	events []*entity.Event,
+) error {
+	log.Info("waiting for aggregations to be computed...", map[string]interface{}{
+		"events_count": len(events),
+	})
+
+	// Ждем некоторое время, чтобы агрегатор обработал события
+	log.Info("waiting 30 seconds for aggregator to process events...", nil)
+	time.Sleep(30 * time.Second)
+
+	log.Info("verifying aggregations...", nil)
+
+	if err := verifier.VerifyAggregations(ctx, aggregationRepo, events); err != nil {
+		log.Error("aggregation verification failed", map[string]interface{}{
+			"error": err,
+		})
+		return err
+	}
+
+	log.Info("✓ AGGREGATIONS VERIFICATION PASSED!", nil)
 	return nil
 }
 

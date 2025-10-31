@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"network-actions-aggregator/internal/domain/entity"
 	"sync"
 	"time"
 
@@ -163,4 +164,221 @@ func (s VerificationStats) String() string {
 		s.SuccessRate,
 		s.AvgLatency.Round(time.Millisecond),
 	)
+}
+
+// VerifyAggregations проверяет корректность агрегаций
+func (v *Verifier) VerifyAggregations(ctx context.Context, aggregationRepo repository.AggregationRepository, events []*entity.Event) error {
+	// Вычисляем ожидаемые агрегаты из исходных событий
+	expectedDay, expectedMonth := calculateExpectedAggregations(events)
+
+	// Определяем временной диапазон
+	if len(events) == 0 {
+		return fmt.Errorf("no events to verify aggregations")
+	}
+
+	var minTime, maxTime time.Time
+	for i, event := range events {
+		if i == 0 || event.StartedAt.Before(minTime) {
+			minTime = event.StartedAt
+		}
+		if i == 0 || event.StartedAt.After(maxTime) {
+			maxTime = event.StartedAt
+		}
+	}
+
+	// Получаем агрегаты из БД
+	dayAggs, err := aggregationRepo.GetDayAggregations(ctx, minTime, maxTime)
+	if err != nil {
+		return fmt.Errorf("failed to get day aggregations: %w", err)
+	}
+
+	monthAggs, err := aggregationRepo.GetMonthAggregations(ctx, minTime, maxTime)
+	if err != nil {
+		return fmt.Errorf("failed to get month aggregations: %w", err)
+	}
+
+	// Преобразуем в карты для сравнения
+	actualDay := convertDayAggsToMap(dayAggs)
+	actualMonth := convertMonthAggsToMap(monthAggs)
+
+	// Сравниваем дневные агрегаты
+	dayErrors := compareDayAggregations(expectedDay, actualDay)
+	if len(dayErrors) > 0 {
+		return fmt.Errorf("day aggregation verification failed: %v", dayErrors)
+	}
+
+	// Сравниваем месячные агрегаты
+	monthErrors := compareMonthAggregations(expectedMonth, actualMonth)
+	if len(monthErrors) > 0 {
+		return fmt.Errorf("month aggregation verification failed: %v", monthErrors)
+	}
+
+	return nil
+}
+
+// calculateExpectedAggregations вычисляет ожидаемые агрегаты из событий
+func calculateExpectedAggregations(events []*entity.Event) (
+	map[string]map[entity.EventType]*aggData,
+	map[string]map[entity.EventType]*aggData,
+) {
+	dayAggs := make(map[string]map[entity.EventType]*aggData)
+	monthAggs := make(map[string]map[entity.EventType]*aggData)
+
+	for _, event := range events {
+		// Дневные агрегаты
+		day := event.StartedAt.Truncate(24 * time.Hour)
+		dayKey := day.Format("2006-01-02")
+		if dayAggs[dayKey] == nil {
+			dayAggs[dayKey] = make(map[entity.EventType]*aggData)
+		}
+		if dayAggs[dayKey][event.Type] == nil {
+			dayAggs[dayKey][event.Type] = &aggData{}
+		}
+		updateAggData(dayAggs[dayKey][event.Type], event)
+
+		// Месячные агрегаты
+		month := time.Date(event.StartedAt.Year(), event.StartedAt.Month(), 1, 0, 0, 0, 0, event.StartedAt.Location())
+		monthKey := month.Format("2006-01")
+		if monthAggs[monthKey] == nil {
+			monthAggs[monthKey] = make(map[entity.EventType]*aggData)
+		}
+		if monthAggs[monthKey][event.Type] == nil {
+			monthAggs[monthKey][event.Type] = &aggData{}
+		}
+		updateAggData(monthAggs[monthKey][event.Type], event)
+	}
+
+	return dayAggs, monthAggs
+}
+
+type aggData struct {
+	countEvents  int64
+	sumDuration  int64
+	sumBytesUp   int64
+	sumBytesDown int64
+}
+
+func updateAggData(agg *aggData, event *entity.Event) {
+	agg.countEvents++
+	if event.DurationSec != nil {
+		agg.sumDuration += int64(*event.DurationSec)
+	}
+	agg.sumBytesUp += event.BytesUp
+	agg.sumBytesDown += event.BytesDown
+}
+
+func convertDayAggsToMap(aggs []*entity.DayAggregation) map[string]map[entity.EventType]*aggData {
+	result := make(map[string]map[entity.EventType]*aggData)
+	for _, agg := range aggs {
+		dayKey := agg.Day.Format("2006-01-02")
+		if result[dayKey] == nil {
+			result[dayKey] = make(map[entity.EventType]*aggData)
+		}
+		result[dayKey][agg.Type] = &aggData{
+			countEvents:  agg.CountEvents,
+			sumDuration:  agg.SumDuration,
+			sumBytesUp:   agg.SumBytesUp,
+			sumBytesDown: agg.SumBytesDown,
+		}
+	}
+	return result
+}
+
+func convertMonthAggsToMap(aggs []*entity.MonthAggregation) map[string]map[entity.EventType]*aggData {
+	result := make(map[string]map[entity.EventType]*aggData)
+	for _, agg := range aggs {
+		monthKey := agg.Month.Format("2006-01")
+		if result[monthKey] == nil {
+			result[monthKey] = make(map[entity.EventType]*aggData)
+		}
+		result[monthKey][agg.Type] = &aggData{
+			countEvents:  agg.CountEvents,
+			sumDuration:  agg.SumDuration,
+			sumBytesUp:   agg.SumBytesUp,
+			sumBytesDown: agg.SumBytesDown,
+		}
+	}
+	return result
+}
+
+func compareDayAggregations(expected, actual map[string]map[entity.EventType]*aggData) []string {
+	var errors []string
+
+	for dayKey, dayTypes := range expected {
+		for eventType, expectedData := range dayTypes {
+			actualData, exists := actual[dayKey][eventType]
+			if !exists {
+				errors = append(errors, fmt.Sprintf("missing day aggregation for %s/%s", dayKey, eventType))
+				continue
+			}
+
+			if expectedData.countEvents != actualData.countEvents {
+				errors = append(errors, fmt.Sprintf(
+					"day %s/%s count mismatch: expected %d, got %d",
+					dayKey, eventType, expectedData.countEvents, actualData.countEvents,
+				))
+			}
+			if expectedData.sumDuration != actualData.sumDuration {
+				errors = append(errors, fmt.Sprintf(
+					"day %s/%s duration mismatch: expected %d, got %d",
+					dayKey, eventType, expectedData.sumDuration, actualData.sumDuration,
+				))
+			}
+			if expectedData.sumBytesUp != actualData.sumBytesUp {
+				errors = append(errors, fmt.Sprintf(
+					"day %s/%s bytesUp mismatch: expected %d, got %d",
+					dayKey, eventType, expectedData.sumBytesUp, actualData.sumBytesUp,
+				))
+			}
+			if expectedData.sumBytesDown != actualData.sumBytesDown {
+				errors = append(errors, fmt.Sprintf(
+					"day %s/%s bytesDown mismatch: expected %d, got %d",
+					dayKey, eventType, expectedData.sumBytesDown, actualData.sumBytesDown,
+				))
+			}
+		}
+	}
+
+	return errors
+}
+
+func compareMonthAggregations(expected, actual map[string]map[entity.EventType]*aggData) []string {
+	var errors []string
+
+	for monthKey, monthTypes := range expected {
+		for eventType, expectedData := range monthTypes {
+			actualData, exists := actual[monthKey][eventType]
+			if !exists {
+				errors = append(errors, fmt.Sprintf("missing month aggregation for %s/%s", monthKey, eventType))
+				continue
+			}
+
+			if expectedData.countEvents != actualData.countEvents {
+				errors = append(errors, fmt.Sprintf(
+					"month %s/%s count mismatch: expected %d, got %d",
+					monthKey, eventType, expectedData.countEvents, actualData.countEvents,
+				))
+			}
+			if expectedData.sumDuration != actualData.sumDuration {
+				errors = append(errors, fmt.Sprintf(
+					"month %s/%s duration mismatch: expected %d, got %d",
+					monthKey, eventType, expectedData.sumDuration, actualData.sumDuration,
+				))
+			}
+			if expectedData.sumBytesUp != actualData.sumBytesUp {
+				errors = append(errors, fmt.Sprintf(
+					"month %s/%s bytesUp mismatch: expected %d, got %d",
+					monthKey, eventType, expectedData.sumBytesUp, actualData.sumBytesUp,
+				))
+			}
+			if expectedData.sumBytesDown != actualData.sumBytesDown {
+				errors = append(errors, fmt.Sprintf(
+					"month %s/%s bytesDown mismatch: expected %d, got %d",
+					monthKey, eventType, expectedData.sumBytesDown, actualData.sumBytesDown,
+				))
+			}
+		}
+	}
+
+	return errors
 }
