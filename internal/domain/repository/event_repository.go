@@ -29,4 +29,7 @@ type EventRepository interface {
 
 	// GetByEventIDs возвращает события по списку event_id
 	GetByEventIDs(ctx context.Context, eventIDs []uuid.UUID) ([]*entity.Event, error)
+
+	// GetByTimeRange возвращает все события за указанный период времени
+	GetByTimeRange(ctx context.Context, from, to time.Time) ([]*entity.Event, error)
 }

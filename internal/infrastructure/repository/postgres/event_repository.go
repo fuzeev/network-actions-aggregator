@@ -131,3 +131,19 @@ func (r *eventRepository) GetByEventIDs(ctx context.Context, eventIDs []uuid.UUI
 
 	return gorm_models.ToDomainEventBatch(models), nil
 }
+
+// GetByTimeRange возвращает все события за указанный период времени
+func (r *eventRepository) GetByTimeRange(ctx context.Context, from, to time.Time) ([]*entity.Event, error) {
+	var models []*gorm_models.Event
+
+	result := r.db.WithContext(ctx).
+		Where("started_at >= ? AND started_at <= ?", from, to).
+		Order("started_at ASC").
+		Find(&models)
+
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get events by time range: %w", result.Error)
+	}
+
+	return gorm_models.ToDomainEventBatch(models), nil
+}
