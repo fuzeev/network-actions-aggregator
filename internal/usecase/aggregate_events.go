@@ -15,8 +15,6 @@ import (
 type AggregateEventsConfig struct {
 	// StreamingFlushInterval - интервал сброса накопленных агрегатов в БД
 	StreamingFlushInterval time.Duration
-	// ReconciliationInterval - как часто запускать reconciliation (например, каждый час)
-	ReconciliationInterval time.Duration
 	// LateEventThreshold - порог для late events (если событие старше этого, помечаем день как dirty)
 	LateEventThreshold time.Duration
 	// DirtyPeriodChannelSize - размер буфера канала для dirty periods

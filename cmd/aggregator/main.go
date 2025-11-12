@@ -29,7 +29,6 @@ type Config struct {
 
 	// Aggregation settings
 	StreamingFlushInterval time.Duration // Как часто сбрасывать буферы
-	ReconciliationInterval time.Duration // Интервал reconciliation (не используется, reconciliation идёт по требованию)
 	LateEventThreshold     time.Duration // Порог для late events
 	DirtyPeriodChannelSize int           // Размер буфера канала для dirty periods
 }
@@ -72,7 +71,6 @@ func run() error {
 		KafkaTopic:             getEnv("KAFKA_TOPIC", "events.telecom"),
 		KafkaGroupID:           getEnv("KAFKA_GROUP_ID", "aggregator-group"),
 		StreamingFlushInterval: parseDuration(getEnv("AGGREGATOR_FLUSH_INTERVAL", "30s"), 30*time.Second),
-		ReconciliationInterval: parseDuration(getEnv("AGGREGATOR_RECONCILIATION_INTERVAL", "1h"), 1*time.Hour),
 		LateEventThreshold:     parseDuration(getEnv("AGGREGATOR_LATE_EVENT_THRESHOLD", "5m"), 5*time.Minute),
 		DirtyPeriodChannelSize: getEnvInt("AGGREGATOR_DIRTY_CHANNEL_SIZE", 1000),
 	}
@@ -135,7 +133,6 @@ func run() error {
 		aggregationRepo,
 		usecase.AggregateEventsConfig{
 			StreamingFlushInterval: config.StreamingFlushInterval,
-			ReconciliationInterval: config.ReconciliationInterval,
 			LateEventThreshold:     config.LateEventThreshold,
 			DirtyPeriodChannelSize: config.DirtyPeriodChannelSize,
 		},
