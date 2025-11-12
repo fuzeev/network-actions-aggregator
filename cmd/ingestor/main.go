@@ -93,7 +93,11 @@ func run() error {
 	ingestUC := usecase.NewIngestEventsUseCase(eventRepo, usecaseConfig, log)
 
 	// Создание Kafka consumer
-	consumer := kafka.NewConsumer(kafkaConfig, log)
+	consumer, err := kafka.NewConsumer(kafkaConfig, log)
+	if err != nil {
+		return fmt.Errorf("failed to create kafka consumer: %w", err)
+	}
+	defer consumer.Close()
 
 	// Канал для событий (буфер для сглаживания нагрузки)
 	eventsChan := make(chan *entity.Event, usecaseConfig.BatchSize*2)

@@ -18,7 +18,11 @@ type Consumer struct {
 }
 
 // NewConsumer создает новый Kafka consumer
-func NewConsumer(config ConsumerConfig, logger logger.Logger) *Consumer {
+func NewConsumer(config ConsumerConfig, logger logger.Logger) (*Consumer, error) {
+	if config.Topic == "" {
+		return nil, fmt.Errorf("topic must be specified")
+	}
+
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:        config.Brokers,
 		Topic:          config.Topic,
@@ -34,10 +38,8 @@ func NewConsumer(config ConsumerConfig, logger logger.Logger) *Consumer {
 		reader: reader,
 		config: config,
 		logger: logger,
-	}
+	}, nil
 }
-
-//todo узнать у нейросетки как еще можно доработать
 
 // ConsumeEvents читает события из Kafka и отправляет в канал
 func (c *Consumer) ConsumeEvents(ctx context.Context, eventsChan chan<- *entity.Event) error {
@@ -99,6 +101,11 @@ func (c *Consumer) ConsumeEvents(ctx context.Context, eventsChan chan<- *entity.
 			}
 		}
 	}
+}
+
+// ConsumeToChannel alias для ConsumeEvents для совместимости
+func (c *Consumer) ConsumeToChannel(ctx context.Context, eventsChan chan<- *entity.Event) error {
+	return c.ConsumeEvents(ctx, eventsChan)
 }
 
 // parseEvent парсит JSON в Event
